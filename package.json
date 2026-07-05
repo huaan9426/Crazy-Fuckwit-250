@@ -6,20 +6,15 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "dev:web": "vite --host 0.0.0.0",
-    "dev:api": "tsx watch server/index.ts",
+    "dev:api": "cd server && go run .",
     "build": "tsc && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.1",
-    "tsx": "^4.19.2",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^8.1.3"
   },
   "dependencies": {
-    "@fastify/cors": "^10.0.1",
-    "fastify": "^5.1.0",
-    "pg": "^8.13.1",
-    "zod": "^3.23.8"
+    "phaser": "^4.2.0"
   }
 }
