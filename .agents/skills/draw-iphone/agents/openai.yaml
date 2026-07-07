@@ -1,0 +1,7 @@
+interface:
+  display_name: "Draw iPhone"
+  short_description: "Generate iPhone item photos."
+  default_prompt: "Use $draw-iphone when the user says /draw iphone to turn item names into separate no-filter iPhone product photos."
+
+policy:
+  allow_implicit_invocation: true
