@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import re
@@ -11,9 +12,16 @@ from pathlib import Path
 from typing import Optional
 
 
-STYLE_SIGNATURE = "CF250_IPHONE_REALPHOTO_V1"
-SCHEMA_VERSION = "iphone-product-photo-prompt-manifest/v1"
-REQUIRED_FIELDNAMES = ["schema_version", "style_signature", "index", "item_name", "subject_kind", "subject", "prompt", "qa_status"]
+LEGACY_STYLE_SIGNATURE = "CF250_IPHONE_REALPHOTO_V1"
+LEGACY_MIXED_STYLE_SET_SIGNATURE = "CF250_ITEM_ART_MIXED_V2"
+STYLE_SET_SIGNATURE = "CF250_ITEM_ART_COHESIVE_V3"
+ART_DIRECTION_SIGNATURE = "CF250_GAME_ITEM_ART_BIBLE_V1"
+LEGACY_SCHEMA_VERSION = "iphone-product-photo-prompt-manifest/v1"
+SCHEMA_VERSION = "item-art-prompt-manifest/v2"
+STYLE_ASSIGNMENT = "stable-sha256-v1"
+DEFAULT_STYLE_SEED = "cf250-item-art-v1"
+LEGACY_REQUIRED_FIELDNAMES = ["schema_version", "style_signature", "index", "item_name", "subject_kind", "subject", "prompt", "qa_status"]
+V2_REQUIRED_FIELDNAMES = LEGACY_REQUIRED_FIELDNAMES + ["subject_category", "style_profile", "style_family", "style_assignment", "style_seed"]
 FIELDNAMES = [
     "schema_version",
     "style_signature",
@@ -21,6 +29,14 @@ FIELDNAMES = [
     "item_name",
     "subject_kind",
     "subject",
+    "subject_category",
+    "style_profile",
+    "style_family",
+    "style_assignment",
+    "style_seed",
+    "art_direction_signature",
+    "visual_archetype",
+    "palette_profile",
     "frontend_card_width",
     "frontend_card_height",
     "asset_width",
@@ -45,6 +61,96 @@ DEFAULT_ASSET_WIDTH = 2040
 DEFAULT_ASSET_HEIGHT = 936
 DEFAULT_ASSET_SIZE = f"{DEFAULT_ASSET_WIDTH}x{DEFAULT_ASSET_HEIGHT}"
 VISUAL_GRADES = ("auto", "bronze", "silver", "gold", "diamond", "legendary")
+STYLE_PROFILE_ORDER = (
+    "fauvist-paint",
+    "pop-art-print",
+    "constructivist-poster",
+    "baroque-still-life",
+    "hyperreal-ad",
+    "retro-east-asian-ad",
+)
+STYLE_CHOICES = ("auto", "iphone-realphoto", *STYLE_PROFILE_ORDER)
+MASTER_ART_DIRECTION = (
+    "Unified premium game item illustration with cinematic commercial realism and a polished hand-painted finish. "
+    "Present the product as the only hero in a dynamic three-quarter or strong diagonal view, with a complete readable silhouette, "
+    "crisp material highlights, a localized luminous key and rim light, readable midtones, and open shadow detail. "
+    "Use subtle lens perspective for impact without warping product geometry. Build the background from two broad color masses "
+    "and one shallow environmental plane, keeping all visual energy directed toward the product"
+)
+STYLE_PROFILES = {
+    "fauvist-paint": {
+        "family": "fauvist-commercial-painting",
+        "signature": f"{STYLE_SET_SIGNATURE}/fauvist-paint",
+        "prompt": (
+            "Fauvist-inspired commercial painting treatment with broad confident brushwork in the background and reflected light, "
+            "expressive complementary-color shadows, while silhouette-critical edges and product materials remain precise"
+        ),
+    },
+    "pop-art-print": {
+        "family": "pop-art-commercial-print",
+        "signature": f"{STYLE_SET_SIGNATURE}/pop-art-print",
+        "prompt": (
+            "Pop Art advertising treatment with selective halftone dots, tactile silkscreen ink texture, and one restrained dark contour, "
+            "applied mainly to the background while the product keeps dimensional volume and credible materials"
+        ),
+    },
+    "constructivist-poster": {
+        "family": "constructivist-consumer-poster",
+        "signature": f"{STYLE_SET_SIGNATURE}/constructivist-poster",
+        "prompt": (
+            "Constructivist-inspired commercial treatment with two or three large diagonal background planes and restrained screen-print texture, "
+            "while the product remains dimensional, materially convincing, and free of poster typography"
+        ),
+    },
+    "baroque-still-life": {
+        "family": "baroque-product-still-life",
+        "signature": f"{STYLE_SET_SIGNATURE}/baroque-still-life",
+        "prompt": (
+            "Baroque still-life treatment with rich oil glazing, jewel-tone depth, and one warm directional beam, "
+            "but with raised readable shadows and no crushed black areas at thumbnail size"
+        ),
+    },
+    "hyperreal-ad": {
+        "family": "contemporary-hyperreal-advertising",
+        "signature": f"{STYLE_SET_SIGNATURE}/hyperreal-ad",
+        "prompt": (
+            "Hyperreal contemporary advertising treatment with a physical paper set, low three-quarter close-up, hard directional flash, "
+            "brilliant controlled highlights, and dense but readable realistic shadow"
+        ),
+    },
+    "retro-east-asian-ad": {
+        "family": "retro-east-asian-magazine-ad",
+        "signature": f"{STYLE_SET_SIGNATURE}/retro-east-asian-ad",
+        "prompt": (
+            "1990s East Asian magazine-ad treatment with an airbrushed gouache and product-photography hybrid finish, "
+            "bright frontal commercial light, broad geometric color fields, and subtle offset-print grain"
+        ),
+    },
+}
+LEGACY_MIXED_STYLE_ANCHORS = {
+    "fauvist-paint": "Fauvist-inspired commercial product painting",
+    "pop-art-print": "Classic Pop Art advertising print",
+    "constructivist-poster": "Constructivist-inspired consumer poster",
+    "baroque-still-life": "Baroque still-life oil painting",
+    "hyperreal-ad": "Hyperreal contemporary product advertising photography",
+    "retro-east-asian-ad": "1990s East Asian magazine advertisement",
+}
+PALETTE_PROFILE_ORDER = (
+    "ember-cobalt",
+    "tropical-daylight",
+    "candy-electric",
+    "jade-gold",
+    "citrus-steel",
+    "plum-mint",
+)
+PALETTE_PROFILES = {
+    "ember-cobalt": "cobalt blue and warm amber with a restrained scarlet accent",
+    "tropical-daylight": "turquoise and leaf green with a restrained sunflower-yellow accent",
+    "candy-electric": "coral pink and clean cyan with a restrained violet accent",
+    "jade-gold": "deep jade and warm ivory with a restrained vermilion accent",
+    "citrus-steel": "steel blue and citrus yellow with a restrained orange accent",
+    "plum-mint": "deep plum and pale mint with a restrained rose accent",
+}
 FRAME_STYLES = {
     "bronze": "aged-bronze-market-frame",
     "silver": "brushed-silver-market-frame",
@@ -65,6 +171,41 @@ FIXED_BASE = (
     "true-to-life colors, subtle lens flare if applicable, natural skin texture, real iPhone photography, "
     "4K resolution feel, documentary realism, casual everyday photo"
 )
+
+CATEGORY_CUES = {
+    "food": "preserve edible structure and emphasize fresh surface texture with at most one natural appetite cue such as steam, glaze, or crisp crumbs, without garnish or extra ingredients",
+    "drink": "preserve the real container and liquid behavior, showing glass, condensation, foam, or translucency only when physically plausible",
+    "drinkware": "preserve the authentic vessel silhouette, lid, handle, straw, finish, and scale; do not invent openings, emblems, or accessories",
+    "personal-care": "preserve packaging proportions and show convincing glass, cream, soap, wax, or plastic material",
+    "stationery": "preserve functional geometry and emphasize nib, barrel, paper, wood, or metal detail",
+    "jewelry": "preserve scale and construction while showing controlled metal reflections and fine surface detail",
+    "electronics": "preserve exact device geometry, port placement, controls, and screen shape where present while showing convincing glass, metal, plastic, wear, or damage",
+    "appliance": "preserve the authentic appliance footprint, controls, vents, integral cable, and moving parts where present without inventing functions, sensors, or attachments",
+    "cookware": "preserve the authentic cookware profile, handles, lid, enamel, metal, ceramic, and manufacturing details without added food or utensils",
+    "apparel": "preserve the complete wearable silhouette and show fabric, stitching, leather, or rubber texture",
+    "ticket": "keep one ticket or pass recognizable by shape and layout while all printed details remain abstract and unreadable",
+    "bill-or-receipt": "keep one bill, invoice, or receipt recognizable by shape and layout with no readable personal or payment data",
+    "service-token": "show one tangible token that clearly represents the service while all private details remain unreadable",
+    "general-product": "preserve real-world proportions, defining silhouette, function, and material texture",
+}
+
+VISUAL_ARCHETYPE_CUES = {
+    "food-closeup": "use a close low three-quarter view; the edible surface is the focal point and the full identity remains obvious",
+    "tall-vessel": "place the vessel on a strong diagonal or three-quarter axis, keeping its full lid, handle, base, and brand-defining outline visible",
+    "handheld-electronics": "use a three-quarter hero angle that exposes the real screen, controls, ports, and thickness without impossible floating parts",
+    "appliance": "use a grounded three-quarter hero view with the full footprint visible and one restrained energy accent behind the product",
+    "cookware": "use a low three-quarter view that clearly separates body, lid, rim, handles, and material finish",
+    "soft-apparel": "show the complete wearable silhouette with one controlled flowing fold or lifted edge, no body, mannequin, hanger, or extra garment",
+    "flat-document": "show the complete single document at a slight perspective angle with clean outer edges and abstract unreadable printing",
+    "small-hard-good": "use a macro three-quarter hero view with precise construction, tactile surface detail, and a clean complete silhouette",
+    "hero-product": "use a grounded three-quarter hero view with the complete defining silhouette and function immediately readable",
+}
+
+STYLE_POOLS_BY_CATEGORY = {
+    "ticket": ("pop-art-print", "constructivist-poster", "hyperreal-ad", "retro-east-asian-ad"),
+    "bill-or-receipt": ("pop-art-print", "constructivist-poster", "hyperreal-ad", "retro-east-asian-ad"),
+    "service-token": ("pop-art-print", "constructivist-poster", "hyperreal-ad", "retro-east-asian-ad"),
+}
 
 DETAILS = {
     "包子": "fresh steamed bun on plain white breakfast paper, close enough to show soft dough texture and tiny moisture",
@@ -132,7 +273,7 @@ SERVICE_HINTS = (
     "打车",
 )
 
-BANNED_TERMS = (
+LEGACY_BANNED_TERMS = (
     "trading card",
     "dark humor",
     "satirical",
@@ -149,7 +290,7 @@ BANNED_TERMS = (
     "game card",
 )
 
-REQUIRED_PHRASES = (
+LEGACY_REQUIRED_PHRASES = (
     "Close-up iPhone snapshot",
     "single",
     "landscape horizontal frame for a wide marketplace item tile art crop",
@@ -168,7 +309,40 @@ REQUIRED_PHRASES = (
     "documentary realism",
 )
 
-IMAGE_QA_CHECKS = (
+COMMON_BANNED_TERMS = (
+    "trading card",
+    "dark humor",
+    "satirical",
+    "consumerist",
+    "money bills",
+    "floating money",
+    "red warning",
+    "warning neon",
+    "title bar",
+    "price tag",
+    "stat box",
+)
+
+MIXED_REQUIRED_PHRASES = (
+    "Single-item game UI artwork of a single",
+    "Wide horizontal 340:156 item-card art composition",
+    "one dominant item only",
+    "narrow 6 percent safe edge margin",
+    "Preserve the item's real-world identity",
+    "no duplicate item",
+    "no card border",
+    "no game UI",
+    "no watermark",
+)
+
+COHESIVE_REQUIRED_PHRASES = (
+    "Unified premium game item illustration",
+    "two broad color masses",
+    "preserving the product's authentic body color",
+    "match its known silhouette and hardware layout",
+)
+
+LEGACY_IMAGE_QA_CHECKS = (
     "one clear main subject",
     "phone-photo look, not studio render or illustration",
     "natural lighting and true-to-life color",
@@ -177,6 +351,19 @@ IMAGE_QA_CHECKS = (
     "item fills most of the frame while still looking casually photographed",
     "no brand logo dominating the image",
     "no text signature or watermark added by the model",
+)
+
+IMAGE_QA_CHECKS = (
+    "one clear main subject and no duplicate item",
+    "subject occupies about 70 to 88 percent of the usable frame and remains recognizable at 340x156",
+    "authentic product silhouette, hardware layout, materials, and defining parts; no invented logo or mechanism",
+    "selected style treatment stays subordinate to product identity",
+    "two broad background color masses, one restrained accent, readable midtones, and open shadow detail",
+    "localized light and motion energy direct attention toward the item rather than the background",
+    "no competing props, people, hands, card border, game UI, or rarity badge",
+    "no readable private data, invented typography, signature, or watermark",
+    "exact final pixel size 2040x936",
+    "reviewed in a true-size 340x156 contact sheet beside adjacent batch items",
 )
 
 
@@ -200,7 +387,7 @@ def subject_for(item: str) -> str:
         return DETAILS[item]
     if any(hint in item for hint in SERVICE_HINTS):
         return f"real receipt or payment slip representing {item}, placed on an ordinary table, no readable private information"
-    return f"real {item} placed on an ordinary everyday surface, close enough to show natural material texture"
+    return f"named real-world product {item}, shown alone with its authentic market shape and defining material texture"
 
 
 def subject_kind(item: str) -> str:
@@ -209,6 +396,137 @@ def subject_kind(item: str) -> str:
     if any(hint in item for hint in SERVICE_HINTS):
         return "tangible-token"
     return "physical-item"
+
+
+def subject_category_for(item: str) -> str:
+    normalized = item.casefold()
+    if any(hint in normalized for hint in ("账单", "罚单", "发票", "收据", "押金", "缴费", "费用", "invoice", "receipt", "bill")):
+        return "bill-or-receipt"
+    if any(hint in normalized for hint in ("票", "券", "通行证", "登机牌", "ticket", "boarding pass")):
+        return "ticket"
+    if subject_kind(item) == "tangible-token":
+        return "service-token"
+    if any(
+        hint in normalized
+        for hint in (
+            "咖啡机",
+            "胶囊机",
+            "吹风机",
+            "扫地机器人",
+            "吸尘器",
+            "电饭煲",
+            "冰箱",
+            "洗衣机",
+            "微波炉",
+            "空调",
+            "烤箱",
+            "洗碗机",
+            "净化器",
+            "榨汁机",
+            "破壁机",
+            "料理机",
+            "烤面包机",
+            "电风扇",
+            "取暖器",
+            "空气炸锅",
+            "coffee machine",
+            "capsule machine",
+            "hair dryer",
+            "robot vacuum",
+            "vacuum cleaner",
+            "air fryer",
+            "refrigerator",
+            "washing machine",
+            "microwave",
+            "air conditioner",
+            "dishwasher",
+            "appliance",
+        )
+    ):
+        return "appliance"
+    if any(hint in normalized for hint in ("保温杯", "水杯", "马克杯", "随行杯", "酒杯", "茶杯", "咖啡杯", "杯子", "杯", "保温壶", "水壶", "tumbler", "thermos", "travel mug", "water bottle", "mug")):
+        return "drinkware"
+    if any(hint in normalized for hint in ("铸铁锅", "平底锅", "炒锅", "汤锅", "炖锅", "砂锅", "煎锅", "锅具", "锅", "cast iron pot", "dutch oven", "frying pan", "saucepan", "cookware")):
+        return "cookware"
+    if any(hint in normalized for hint in ("咖啡", "酒", "茶", "饮料", "可乐", "果汁", "矿泉水", "牛奶", "酸奶", "coffee", "wine", "tea", "beverage", "juice", "milk")):
+        return "drink"
+    if any(hint in normalized for hint in ("香皂", "雪花膏", "面膜", "香水", "口红", "洗发", "护肤", "牙膏", "化妆")):
+        return "personal-care"
+    if any(hint in normalized for hint in ("手机", "电脑", "耳机", "相机", "电视", "手表", "充电", "键盘", "鼠标", "游戏机", "平板", "显示器", "路由器", "音箱", "电器", "power bank", "smartphone", "laptop", "headphones", "camera", "keyboard", "mouse", "console", "tablet", "monitor", "router", "speaker")):
+        return "electronics"
+    if any(hint in normalized for hint in ("金饰", "首饰", "项链", "戒指", "手镯", "耳环", "钻石", "黄金", "珠宝")):
+        return "jewelry"
+    if any(hint in normalized for hint in ("钢笔", "铅笔", "圆珠笔", "文具", "笔记本", "墨水", "尺子")):
+        return "stationery"
+    if any(hint in normalized for hint in ("包子", "糕", "饼", "酥", "面包", "泡面", "黄泥螺", "糖", "巧克力", "冰淇淋", "冰砖", "零食", "炒饭", "米饭", "白粥", "粥品", "bun", "pastry", "bread", "noodle", "chocolate", "ice cream")):
+        return "food"
+    if any(hint in normalized for hint in ("衣服", "外套", "衬衫", "裤", "鞋", "帽", "背包", "手提包", "皮带", "shirt", "jacket", "coat", "trousers", "pants", "shoes", "hat", "backpack", "handbag", "belt")):
+        return "apparel"
+    return "general-product"
+
+
+def visual_archetype_for(item: str) -> str:
+    category = subject_category_for(item)
+    if category in {"ticket", "bill-or-receipt", "service-token"}:
+        return "flat-document"
+    if category == "food":
+        return "food-closeup"
+    if category in {"drink", "drinkware"}:
+        return "tall-vessel"
+    if category == "electronics":
+        return "handheld-electronics"
+    if category == "appliance":
+        return "appliance"
+    if category == "cookware":
+        return "cookware"
+    if category == "apparel":
+        return "soft-apparel"
+    if category in {"personal-care", "stationery", "jewelry"}:
+        return "small-hard-good"
+    return "hero-product"
+
+
+def style_profile_for(item: str, requested: str = "auto", style_seed: str = DEFAULT_STYLE_SEED) -> str:
+    if requested != "auto":
+        if requested != "iphone-realphoto" and requested not in STYLE_PROFILES:
+            raise ValueError(f"unknown style profile: {requested}")
+        return requested
+    if not style_seed:
+        raise ValueError("style_seed must not be empty")
+    pool = STYLE_POOLS_BY_CATEGORY.get(subject_category_for(item), STYLE_PROFILE_ORDER)
+    digest = hashlib.sha256(f"{style_seed}\0{item}".encode("utf-8")).digest()
+    return pool[int.from_bytes(digest[:8], "big") % len(pool)]
+
+
+def palette_profile_for(item: str, style_seed: str = DEFAULT_STYLE_SEED) -> str:
+    if not style_seed:
+        raise ValueError("style_seed must not be empty")
+    digest = hashlib.sha256(f"palette\0{style_seed}\0{item}".encode("utf-8")).digest()
+    return PALETTE_PROFILE_ORDER[int.from_bytes(digest[:8], "big") % len(PALETTE_PROFILE_ORDER)]
+
+
+def composition_cue_for(item: str) -> str:
+    archetype = visual_archetype_for(item)
+    if archetype == "flat-document":
+        return "the single flat token occupies 70 to 82 percent of the frame width at a slight perspective angle while its full outline stays visible"
+    if archetype in {"tall-vessel", "handheld-electronics", "small-hard-good"}:
+        return "the item's long axis runs diagonally across the frame and occupies 76 to 88 percent of the usable long dimension while the full identity stays readable"
+    if archetype == "soft-apparel":
+        return "the complete wearable silhouette occupies 68 to 80 percent of the usable frame without folding into an unrecognizable shape"
+    return "the item fills 78 to 86 percent of the usable image area while its complete identifying silhouette stays visible"
+
+
+def style_signature_for(style_profile: str) -> str:
+    if style_profile == "iphone-realphoto":
+        return LEGACY_STYLE_SIGNATURE
+    return str(STYLE_PROFILES[style_profile]["signature"])
+
+
+def style_signature_is_compatible(style_profile: str, signature: str) -> bool:
+    return signature in {
+        style_signature_for(style_profile),
+        f"{LEGACY_MIXED_STYLE_SET_SIGNATURE}/{style_profile}",
+    }
 
 
 def visual_grade_for(item: str, requested: str = "auto") -> str:
@@ -229,36 +547,74 @@ def visual_grade_for(item: str, requested: str = "auto") -> str:
     return "bronze"
 
 
-def prompt_for(item: str) -> str:
+def prompt_for(item: str, requested_style: str = "auto", style_seed: str = DEFAULT_STYLE_SEED) -> str:
+    style_profile = style_profile_for(item, requested_style, style_seed)
+    if style_profile == "iphone-realphoto":
+        return (
+            f"Close-up iPhone snapshot of a single {subject_for(item)}, "
+            f"landscape horizontal frame for a wide marketplace item tile art crop, centered product silhouette, "
+            f"safe empty margin near all edges for deterministic UI overlay, one dominant item only, casual handheld composition, "
+            f"no text, no border, no decorative frame, no dominant logo, no extra props competing with the subject, {FIXED_BASE}"
+        )
+    category = subject_category_for(item)
+    archetype = visual_archetype_for(item)
+    palette = palette_profile_for(item, style_seed)
     return (
-        f"Close-up iPhone snapshot of a single {subject_for(item)}, "
-        f"landscape horizontal frame for a wide marketplace item tile art crop, centered product silhouette, "
-        f"safe empty margin near all edges for deterministic UI overlay, one dominant item only, casual handheld composition, "
-        f"no text, no border, no decorative frame, no dominant logo, no extra props competing with the subject, {FIXED_BASE}"
+        f"Single-item game UI artwork of a single {subject_for(item)}, {CATEGORY_CUES[category]}. "
+        f"Wide horizontal 340:156 item-card art composition, one dominant item only, {composition_cue_for(item)}, "
+        f"{VISUAL_ARCHETYPE_CUES[archetype]}. {MASTER_ART_DIRECTION}. "
+        f"Use {PALETTE_PROFILES[palette]} mainly in the background and light accents, preserving the product's authentic body color. "
+        f"Apply this controlled surface treatment: {STYLE_PROFILES[style_profile]['prompt']}. "
+        f"Keep a narrow 6 percent safe edge margin. Preserve the item's real-world identity, proportions, function, and defining material cues. "
+        f"When a brand or model is named, match its known silhouette and hardware layout; omit uncertain logos or printed details instead of inventing them. "
+        f"Exactly one item, no duplicate item, no competing props, no people, no hands, no added typography, unavoidable printed marks abstract and unreadable, "
+        f"no readable personal data, no dominant logo, no card border, no game UI, no rarity badge, no signature, no watermark"
     )
 
 
-def validate_prompt(prompt: str) -> list[str]:
-    errors = [f"missing required phrase: {phrase}" for phrase in REQUIRED_PHRASES if phrase not in prompt]
+def validate_prompt(prompt: str, style_profile: str = "iphone-realphoto", require_cohesive: bool = False) -> list[str]:
+    if style_profile == "iphone-realphoto":
+        errors = [f"missing required phrase: {phrase}" for phrase in LEGACY_REQUIRED_PHRASES if phrase not in prompt]
+        banned_terms = LEGACY_BANNED_TERMS
+    elif style_profile in STYLE_PROFILES:
+        errors = [f"missing required phrase: {phrase}" for phrase in MIXED_REQUIRED_PHRASES if phrase not in prompt]
+        if require_cohesive:
+            errors.extend(f"missing required phrase: {phrase}" for phrase in COHESIVE_REQUIRED_PHRASES if phrase not in prompt)
+        anchors = (
+            str(STYLE_PROFILES[style_profile]["prompt"]).split(" with ", 1)[0],
+            LEGACY_MIXED_STYLE_ANCHORS[style_profile],
+        )
+        if not any(anchor in prompt for anchor in anchors):
+            errors.append(f"missing style anchor: {anchors[0]}")
+        banned_terms = COMMON_BANNED_TERMS
+    else:
+        return [f"unknown style profile: {style_profile}"]
     lower_prompt = prompt.lower()
-    errors.extend(f"banned term present: {term}" for term in BANNED_TERMS if term in lower_prompt)
+    errors.extend(f"banned term present: {term}" for term in banned_terms if term in lower_prompt)
     if "single single" in lower_prompt:
         errors.append("duplicate wording: single single")
     return errors
 
 
-def record_for(index: int, item: str, requested_grade: str = "auto") -> dict[str, object]:
+def record_for(
+    index: int,
+    item: str,
+    requested_grade: str = "auto",
+    requested_style: str = "auto",
+    style_seed: str = DEFAULT_STYLE_SEED,
+) -> dict[str, object]:
     item_errors = validate_item_name(item)
     if item_errors:
         raise ValueError(f"{item}: {'; '.join(item_errors)}")
-    prompt = prompt_for(item)
-    errors = validate_prompt(prompt)
+    style_profile = style_profile_for(item, requested_style, style_seed)
+    prompt = prompt_for(item, style_profile, style_seed)
+    errors = validate_prompt(prompt, style_profile, style_profile != "iphone-realphoto")
     if errors:
         raise ValueError(f"{item}: {'; '.join(errors)}")
     visual_grade = visual_grade_for(item, requested_grade)
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "style_signature": STYLE_SIGNATURE,
+    record = {
+        "schema_version": LEGACY_SCHEMA_VERSION if style_profile == "iphone-realphoto" else SCHEMA_VERSION,
+        "style_signature": style_signature_for(style_profile),
         "index": index,
         "item_name": item,
         "subject_kind": subject_kind(item),
@@ -275,6 +631,20 @@ def record_for(index: int, item: str, requested_grade: str = "auto") -> dict[str
         "prompt": prompt,
         "qa_status": "prompt_validated",
     }
+    if style_profile != "iphone-realphoto":
+        record.update(
+            {
+                "subject_category": subject_category_for(item),
+                "style_profile": style_profile,
+                "style_family": STYLE_PROFILES[style_profile]["family"],
+                "style_assignment": STYLE_ASSIGNMENT if requested_style == "auto" else "explicit",
+                "style_seed": style_seed,
+                "art_direction_signature": ART_DIRECTION_SIGNATURE,
+                "visual_archetype": visual_archetype_for(item),
+                "palette_profile": palette_profile_for(item, style_seed),
+            }
+        )
+    return record
 
 
 def load_manifest(path: Path) -> list[dict[str, object]]:
@@ -297,15 +667,38 @@ def load_manifest(path: Path) -> list[dict[str, object]]:
 
 def validate_record(record: dict[str, object], seen_indexes: set[int]) -> list[str]:
     errors: list[str] = []
-    for field in REQUIRED_FIELDNAMES:
+    schema_version = str(record.get("schema_version", ""))
+    required_fields = LEGACY_REQUIRED_FIELDNAMES if schema_version == LEGACY_SCHEMA_VERSION else V2_REQUIRED_FIELDNAMES
+    for field in required_fields:
         if field not in record or str(record[field]).strip() == "":
             errors.append(f"missing field: {field}")
     if errors:
         return errors
-    if record["schema_version"] != SCHEMA_VERSION:
-        errors.append(f"schema_version must be {SCHEMA_VERSION}")
-    if record["style_signature"] != STYLE_SIGNATURE:
-        errors.append(f"style_signature must be {STYLE_SIGNATURE}")
+    if schema_version == LEGACY_SCHEMA_VERSION:
+        style_profile = "iphone-realphoto"
+        if record["style_signature"] != LEGACY_STYLE_SIGNATURE:
+            errors.append(f"style_signature must be {LEGACY_STYLE_SIGNATURE}")
+    elif schema_version == SCHEMA_VERSION:
+        style_profile = str(record["style_profile"])
+        if style_profile not in STYLE_PROFILES:
+            errors.append("style_profile must be one of the six production art styles")
+        else:
+            if not style_signature_is_compatible(style_profile, str(record["style_signature"])):
+                errors.append("style_signature must match style_profile")
+            if str(record["style_family"]) != STYLE_PROFILES[style_profile]["family"]:
+                errors.append("style_family must match style_profile")
+        if str(record["subject_category"]) not in CATEGORY_CUES:
+            errors.append("subject_category is not supported")
+        if str(record["style_assignment"]) not in {STYLE_ASSIGNMENT, "explicit"}:
+            errors.append(f"style_assignment must be {STYLE_ASSIGNMENT} or explicit")
+        if "art_direction_signature" in record and str(record["art_direction_signature"]) != ART_DIRECTION_SIGNATURE:
+            errors.append(f"art_direction_signature must be {ART_DIRECTION_SIGNATURE}")
+        if "visual_archetype" in record and str(record["visual_archetype"]) not in VISUAL_ARCHETYPE_CUES:
+            errors.append("visual_archetype is not supported")
+        if "palette_profile" in record and str(record["palette_profile"]) not in PALETTE_PROFILES:
+            errors.append("palette_profile is not supported")
+    else:
+        return [f"unsupported schema_version: {schema_version}"]
     try:
         index = int(str(record["index"]))
     except ValueError:
@@ -324,7 +717,13 @@ def validate_record(record: dict[str, object], seen_indexes: set[int]) -> list[s
         errors.append("visual_grade must be bronze, silver, gold, diamond, or legendary")
     if "frame_style" in record and "visual_grade" in record and str(record["frame_style"]) != FRAME_STYLES.get(str(record["visual_grade"])):
         errors.append("frame_style must match visual_grade")
-    errors.extend(validate_prompt(str(record["prompt"])))
+    errors.extend(
+        validate_prompt(
+            str(record["prompt"]),
+            style_profile,
+            str(record.get("style_signature", "")).startswith(f"{STYLE_SET_SIGNATURE}/"),
+        )
+    )
     if record["qa_status"] != "prompt_validated":
         errors.append("qa_status must be prompt_validated")
     return errors
@@ -343,7 +742,11 @@ def validate_manifest(path: Path) -> str:
             failures.append(f"row {row_number} ({item_name}): {'; '.join(errors)}")
     if failures:
         raise ValueError("\n".join(failures))
-    return f"Manifest valid: {len(records)} records, style_signature={STYLE_SIGNATURE}"
+    schemas = sorted({str(record.get("schema_version", "")) for record in records})
+    if schemas == [LEGACY_SCHEMA_VERSION]:
+        return f"Manifest valid: {len(records)} records, style_signature={LEGACY_STYLE_SIGNATURE}"
+    styles = sorted({str(record.get("style_profile", "iphone-realphoto")) for record in records})
+    return f"Manifest valid: {len(records)} records, schemas={','.join(schemas)}, styles={','.join(styles)}"
 
 
 def write_manifest(records: list[dict[str, object]], path: Path) -> None:
@@ -366,6 +769,13 @@ def write_image2_jobs(records: list[dict[str, object]], path: Path, output_forma
                     "item_name": record["item_name"],
                     "subject_kind": record["subject_kind"],
                     "style_signature": record["style_signature"],
+                    "subject_category": record.get("subject_category"),
+                    "style_profile": record.get("style_profile", "iphone-realphoto"),
+                    "style_family": record.get("style_family", "iphone-realphoto"),
+                    "style_assignment": record.get("style_assignment", "legacy"),
+                    "art_direction_signature": record.get("art_direction_signature"),
+                    "visual_archetype": record.get("visual_archetype"),
+                    "palette_profile": record.get("palette_profile"),
                     "visual_grade": record.get("visual_grade"),
                     "frame_style": record.get("frame_style"),
                 },
@@ -514,45 +924,41 @@ def apply_card_frame(image, record: dict[str, object], asset_size: str):
     overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
-    # Quiet dark shelves for later title/price UI without asking the model to draw UI.
-    draw.rounded_rectangle((34, 28, target_width - 34, 150), radius=34, fill=(18, 14, 10, 112))
-    draw.rounded_rectangle((34, target_height - 150, target_width - 34, target_height - 28), radius=34, fill=(18, 14, 10, 132))
-
     glow = Image.new("RGBA", base.size, (0, 0, 0, 0))
     glow_draw = ImageDraw.Draw(glow)
-    glow_color = (*palette["glow"], 130)
-    glow_draw.rounded_rectangle((30, 22, target_width - 30, target_height - 22), radius=44, outline=glow_color, width=26)
-    glow = glow.filter(ImageFilter.GaussianBlur(16))
+    glow_color = (*palette["glow"], 105)
+    glow_draw.rounded_rectangle((18, 14, target_width - 18, target_height - 14), radius=30, outline=glow_color, width=14)
+    glow = glow.filter(ImageFilter.GaussianBlur(10))
     overlay = Image.alpha_composite(overlay, glow)
     draw = ImageDraw.Draw(overlay)
 
-    draw.rounded_rectangle((18, 14, target_width - 18, target_height - 14), radius=42, outline=(*palette["outer"], 255), width=30)
-    draw.rounded_rectangle((46, 40, target_width - 46, target_height - 40), radius=30, outline=(*palette["mid"], 235), width=14)
-    draw.rounded_rectangle((68, 62, target_width - 68, target_height - 62), radius=22, outline=(*palette["inner"], 185), width=5)
+    draw.rounded_rectangle((12, 10, target_width - 12, target_height - 10), radius=30, outline=(*palette["outer"], 255), width=18)
+    draw.rounded_rectangle((32, 28, target_width - 32, target_height - 28), radius=22, outline=(*palette["mid"], 235), width=8)
+    draw.rounded_rectangle((46, 42, target_width - 46, target_height - 42), radius=16, outline=(*palette["inner"], 185), width=3)
 
-    corner = 138
+    corner = 84
     for sx, sy in ((1, 1), (-1, 1), (1, -1), (-1, -1)):
-        x0 = 18 if sx > 0 else target_width - 18
-        y0 = 14 if sy > 0 else target_height - 14
+        x0 = 12 if sx > 0 else target_width - 12
+        y0 = 10 if sy > 0 else target_height - 10
         plate = [
             (x0, y0),
             (x0 + sx * corner, y0),
-            (x0 + sx * (corner - 36), y0 + sy * 38),
-            (x0 + sx * 38, y0 + sy * (corner - 36)),
+            (x0 + sx * (corner - 24), y0 + sy * 24),
+            (x0 + sx * 24, y0 + sy * (corner - 24)),
             (x0, y0 + sy * corner),
         ]
         draw.polygon(plate, fill=(*palette["outer"], 210), outline=(*palette["inner"], 210))
 
     rank = {"bronze": 1, "silver": 2, "gold": 3, "diamond": 4, "legendary": 5}[grade]
-    start_x = target_width - 92 - (rank - 1) * 42
-    y = target_height - 82
+    start_x = target_width - 62 - (rank - 1) * 30
+    y = target_height - 48
     for i in range(rank):
-        draw_diamond(draw, start_x + i * 42, y, 16, (*palette["inner"], 230), (*palette["outer"], 255))
+        draw_diamond(draw, start_x + i * 30, y, 10, (*palette["inner"], 230), (*palette["outer"], 255))
 
     if grade == "legendary":
-        draw.rounded_rectangle((82, 76, target_width - 82, target_height - 76), radius=18, outline=(255, 70, 34, 115), width=6)
+        draw.rounded_rectangle((58, 52, target_width - 58, target_height - 52), radius=14, outline=(255, 70, 34, 100), width=3)
     if grade == "diamond":
-        draw.rounded_rectangle((82, 76, target_width - 82, target_height - 76), radius=18, outline=(110, 240, 255, 130), width=6)
+        draw.rounded_rectangle((58, 52, target_width - 58, target_height - 52), radius=14, outline=(110, 240, 255, 110), width=3)
 
     return Image.alpha_composite(base, overlay)
 
@@ -586,6 +992,61 @@ def render_card_frame_dir(images_dir: Path, frame_out: Path, records: list[dict[
     if not rendered:
         raise FileNotFoundError(f"no {suffix} images found in {images_dir}")
     return rendered
+
+
+def render_review_sheets(
+    images_dir: Path,
+    review_out: Path,
+    records: list[dict[str, object]],
+    output_format: str,
+    page_size: int = 20,
+) -> list[str]:
+    from PIL import Image, ImageDraw
+
+    suffix = "." + output_format.lower()
+    paths = sorted(images_dir.glob(f"*{suffix}"))
+    if not paths:
+        raise FileNotFoundError(f"no {suffix} images found in {images_dir}")
+    review_out.mkdir(parents=True, exist_ok=True)
+    for stale in review_out.glob("contact-*.png"):
+        stale.unlink()
+
+    record_by_index = {int(str(record["index"])): record for record in records if str(record.get("index", "")).isdigit()}
+    columns = 4
+    gap = 8
+    margin = 12
+    label_height = 22
+    cell_width = FRONTEND_CARD_WIDTH
+    cell_height = FRONTEND_CARD_HEIGHT + label_height
+    written: list[str] = []
+
+    for page_index, start in enumerate(range(0, len(paths), page_size), 1):
+        page_paths = paths[start : start + page_size]
+        rows = (len(page_paths) + columns - 1) // columns
+        sheet_width = margin * 2 + columns * cell_width + (columns - 1) * gap
+        sheet_height = margin * 2 + rows * cell_height + (rows - 1) * gap
+        sheet = Image.new("RGB", (sheet_width, sheet_height), (14, 16, 20))
+        draw = ImageDraw.Draw(sheet)
+        for slot, path in enumerate(page_paths):
+            row, column = divmod(slot, columns)
+            x = margin + column * (cell_width + gap)
+            y = margin + row * (cell_height + gap)
+            with Image.open(path) as source:
+                thumb = resize_cover(source, FRONTEND_CARD_WIDTH, FRONTEND_CARD_HEIGHT)
+            sheet.paste(thumb, (x, y))
+            try:
+                index = int(path.stem)
+            except ValueError:
+                index = start + slot + 1
+            record = record_by_index.get(index, {})
+            style = str(record.get("style_profile", "unknown"))
+            archetype = str(record.get("visual_archetype", "unknown"))
+            draw.rectangle((x, y + FRONTEND_CARD_HEIGHT, x + cell_width, y + cell_height), fill=(20, 22, 28))
+            draw.text((x + 6, y + FRONTEND_CARD_HEIGHT + 5), f"{index:04d}  {style}  {archetype}", fill=(232, 235, 240))
+        output = review_out / f"contact-{page_index:04d}.png"
+        sheet.save(output)
+        written.append(str(output))
+    return written
 
 
 def run_image2_batch(records: list[dict[str, object]], args: argparse.Namespace) -> None:
@@ -637,11 +1098,17 @@ def run_image2_batch(records: list[dict[str, object]], args: argparse.Namespace)
         frame_out = Path(args.frame_out) if args.frame_out else out_dir / "framed"
         for line in render_card_frame_dir(images_dir, frame_out, records, args.asset_size, args.output_format):
             print(f"framed: {line}")
+    if not args.dry_run and not args.no_render_review_sheets:
+        review_out = Path(args.review_out) if args.review_out else out_dir / "review"
+        for path in render_review_sheets(images_dir, review_out, records, args.output_format):
+            print(f"review: {path}")
     print(f"manifest: {manifest_path}")
     print(f"image2_jobs: {jobs_path}")
     print(f"images: {images_dir}")
     if not args.dry_run and not args.no_render_card_frames:
         print(f"framed: {Path(args.frame_out) if args.frame_out else out_dir / 'framed'}")
+    if not args.dry_run and not args.no_render_review_sheets:
+        print(f"review: {Path(args.review_out) if args.review_out else out_dir / 'review'}")
 
 
 def read_items(args: argparse.Namespace) -> list[str]:
@@ -658,6 +1125,7 @@ def read_items(args: argparse.Namespace) -> list[str]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--list-styles", action="store_true", help="Print the six production art styles")
     parser.add_argument("--validate-manifest", help="Validate an existing JSONL or CSV prompt manifest")
     parser.add_argument("--manifest", help="Use an existing JSONL or CSV prompt manifest")
     parser.add_argument("--print-image-qa", action="store_true", help="Print the finished-image QA checklist")
@@ -666,6 +1134,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--normalize-images", help="Resize/crop all images in a directory to --asset-size in place")
     parser.add_argument("--render-card-frames", help="Render deterministic game-card frame previews from an image directory")
     parser.add_argument("--frame-out", help="Output directory for framed card previews")
+    parser.add_argument("--render-review-sheets", help="Render true-size 340x156 batch contact sheets from an image directory")
+    parser.add_argument("--review-out", help="Output directory for batch contact sheets")
     parser.add_argument("--image2-out", help="Generate images with gpt-image-2 into this output directory")
     parser.add_argument("--image-gen-script", help="Path to image_gen.py")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
@@ -676,7 +1146,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--asset-size", default=DEFAULT_ASSET_SIZE)
     parser.add_argument("--no-normalize-images", action="store_true")
     parser.add_argument("--no-render-card-frames", action="store_true")
-    parser.add_argument("--visual-grade", choices=VISUAL_GRADES, default="auto")
+    parser.add_argument("--no-render-review-sheets", action="store_true")
+    parser.add_argument("--visual-grade", choices=VISUAL_GRADES, default="bronze")
+    parser.add_argument("--style-profile", choices=STYLE_CHOICES, default="auto")
+    parser.add_argument("--style-seed", default=DEFAULT_STYLE_SEED, help="Stable style assignment seed")
     parser.add_argument("--concurrency", type=int, default=2)
     parser.add_argument("--max-attempts", type=int, default=3)
     parser.add_argument("--dry-run", action="store_true")
@@ -689,8 +1162,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    if args.list_styles:
+        catalog = [
+            {
+                "style_profile": name,
+                "style_family": STYLE_PROFILES[name]["family"],
+                "style_signature": STYLE_PROFILES[name]["signature"],
+            }
+            for name in STYLE_PROFILE_ORDER
+        ]
+        print(json.dumps(catalog, ensure_ascii=False, indent=2))
+        return
     if args.print_image_qa:
-        print("\n".join(f"- {check}" for check in IMAGE_QA_CHECKS))
+        checks = LEGACY_IMAGE_QA_CHECKS if args.style_profile == "iphone-realphoto" else IMAGE_QA_CHECKS
+        print("\n".join(f"- {check}" for check in checks))
         return
     if args.check_image2_channel:
         print(check_image2_channel(args))
@@ -709,6 +1194,12 @@ def main() -> None:
         for line in render_card_frame_dir(Path(args.render_card_frames), frame_out, records, args.asset_size, args.output_format):
             print(f"framed: {line}")
         return
+    if args.render_review_sheets:
+        records = load_manifest(Path(args.manifest)) if args.manifest else []
+        review_out = Path(args.review_out) if args.review_out else Path(args.render_review_sheets).parent / "review"
+        for path in render_review_sheets(Path(args.render_review_sheets), review_out, records, args.output_format):
+            print(f"review: {path}")
+        return
     if args.validate_manifest:
         print(validate_manifest(Path(args.validate_manifest)))
         return
@@ -726,7 +1217,10 @@ def main() -> None:
         items = read_items(args)
         if not items:
             raise SystemExit("No items provided.")
-        records = [record_for(index, item, args.visual_grade) for index, item in enumerate(items, 1)]
+        records = [
+            record_for(index, item, args.visual_grade, args.style_profile, args.style_seed)
+            for index, item in enumerate(items, 1)
+        ]
     if args.image2_out:
         run_image2_batch(records, args)
         return

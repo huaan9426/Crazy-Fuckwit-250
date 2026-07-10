@@ -1,179 +1,163 @@
 ---
 name: draw-iphone
-description: Generate single-item photorealistic iPhone product photo prompts and gpt-image-2 image batches for Crazy-Fuckwit-250 item images. Use when the user says /draw iphone, asks to draw iPhone product photos, provides batches of object, food, product, ticket, receipt, bill, service, or commodity names, or wants consistent no-filter iPhone snapshot prompts or images.
+description: Generate separate single-item game UI art prompts and gpt-image-2 batches for Crazy-Fuckwit-250 through one cohesive game-art direction and six deterministic surface treatments, with backward-compatible earlier mixed-art and iPhone realism modes. Use when the user says /draw iphone, asks for item-card art, supplies product, food, drinkware, appliance, ticket, receipt, bill, service, or commodity names, or wants vivid but reproducible item image batches.
 ---
 
 # Draw iPhone
 
-Turn item names into consistent single-subject iPhone photo prompts.
+Turn item names into separate, high-impact game item images.
 
 ## Boundary
 
-Generate image prompts and, when the user says `/draw iphone` or explicitly asks to generate images, call gpt-image-2 through the configured image2 channel.
+Generate prompts and images only. Do not modify game code, database schema, UI rendering, prices, gameplay, or asset field consumers.
 
-Do not modify game code, database schema, UI rendering, item prices, gameplay rules, or asset fields. Do not call image APIs unless the user says `/draw iphone` or otherwise explicitly asks for image generation.
+Call gpt-image-2 only when the user says /draw iphone or explicitly requests image generation.
 
-Do not add decorative game-card styling, artificial mood effects, floating props, dramatic warning effects, rendered artwork language, or joke/satire framing.
+Keep one input item per prompt and one dominant item per image. Never merge a list into one image.
+
+Keep card borders, title bars, prices, stats, rarity badges, and other UI in the deterministic overlay layer.
+
+## Default Art Direction
+
+Use `CF250_GAME_ITEM_ART_BIBLE_V1` for every new mixed-style image:
+
+- one product is the only hero;
+- dynamic three-quarter or strong diagonal view;
+- complete thumbnail-readable silhouette;
+- cinematic commercial realism with a polished painted finish;
+- localized key and rim light with readable midtones and open shadows;
+- two broad background color masses and one restrained accent;
+- no competing props, scene clutter, card UI, or generated frame.
+
+Use these six profiles only as subordinate surface treatments:
+
+- fauvist-paint
+- pop-art-print
+- constructivist-poster
+- baroque-still-life
+- hyperreal-ad
+- retro-east-asian-ad
+
+Assign style and palette profiles with stable SHA-256 selection. The same item and seed must receive the same treatment after retries or batch reordering.
+
+Do not use runtime randomness for production. Change --style-seed only to create a deliberate new art-direction pass.
+
+Classify physical form separately from semantic category. New rows use one of: `food-closeup`, `tall-vessel`, `handheld-electronics`, `appliance`, `cookware`, `soft-apparel`, `flat-document`, `small-hard-good`, or `hero-product`.
+
+For tickets, bills, receipts, and service tokens, use the safer four-style subset defined in `references/iphone-photo-rules.md`.
+
+Use --style-profile NAME to force one style for a test or curated batch. Use --style-profile iphone-realphoto for the original CF250_IPHONE_REALPHOTO_V1 behavior.
 
 ## Shortcut
 
-Use this skill when the user starts a message with `/draw iphone`.
+When a message starts with /draw iphone, treat the remaining non-empty lines as item names, preserve their order, and generate one separate image2 job per line.
 
-Treat the remaining non-empty lines as item names. Generate one separate image per item through image2. Do not merge multiple item names into one prompt or image.
-
-Example:
-
-```text
-/draw iphone
-光明冰砖
-国际饭店蝴蝶酥
-蜂花檀香皂
-```
+    /draw iphone
+    光明冰砖
+    上海英雄钢笔
+    演唱会票
+    手机碎屏换新
 
 ## Workflow
 
 1. Read item names from the user, a UTF-8 file, or stdin.
-2. Preserve item order.
-3. Convert each item into one concrete real-world photographic subject.
-4. Keep exactly one dominant item in the frame.
-5. Apply the fixed iPhone realism base in `references/iphone-photo-rules.md`.
-6. Add deterministic UI metadata: `visual_grade`, `frame_style`, `photo_role`, and `ui_overlay_required`.
-7. For `/draw iphone`, create an output run directory and run image2 with one job per item.
-8. Normalize raw photos into `images/`, then render deterministic card-frame previews into `framed/`.
-9. For production batches, keep `prompt_manifest.jsonl` and `image2_jobs.jsonl` with the same style signature for every row.
-10. Output a numbered prompt list only when the user asks for prompts instead of images.
+2. Preserve item order and reject corrupted input.
+3. Convert every item into one concrete physical subject or tangible service token.
+4. Classify its semantic category and visual archetype.
+5. Select stable style and palette profiles unless the user forces a style.
+6. Build and validate one prompt row per item.
+7. Generate one image2 job per row.
+8. Normalize raw art into images/ at 2040x936.
+9. Render optional thin-frame previews into framed/.
+10. Render true-size 340x156 batch contact sheets into review/.
+11. Keep prompt_manifest.jsonl and image2_jobs.jsonl for production traceability.
+
+Read references/iphone-photo-rules.md before changing style profiles, category rules, prompt QA, or manifest fields.
 
 ## Script
 
-Use the script for batches:
+List production styles:
 
-```powershell
-python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --items "包子" "咖啡" "手机碎屏换新"
-```
+    python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --list-styles
+
+Generate a stable mixed-style prompt batch:
+
+    python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --items "包子" "咖啡" "上海英雄钢笔" "演唱会票"
+
+Force one style:
+
+    python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --items "包子" "咖啡" --style-profile pop-art-print
+
+Use legacy iPhone realism:
+
+    python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --items "包子" "咖啡" --style-profile iphone-realphoto
 
 Check the image2 channel:
 
-```powershell
-python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --check-image2-channel
-```
+    python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --check-image2-channel
 
-Generate images with image2:
+Generate images:
 
-```powershell
-python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --items "包子" "咖啡" --image2-out ".\draw-iphone-run"
-```
+    python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --file ".\items.txt" --image2-out ".\draw-iphone-run"
 
-Dry-run image2 without spending generation calls:
+Dry-run without generation cost:
 
-```powershell
-python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --items "包子" "咖啡" --image2-out ".\draw-iphone-run" --dry-run
-```
+    python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --file ".\items.txt" --image2-out ".\draw-iphone-run" --dry-run
 
-Validate generated image dimensions:
+Validate outputs:
 
-```powershell
-python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --validate-images ".\draw-iphone-run\images"
-```
+    python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --validate-manifest ".\draw-iphone-run\prompt_manifest.jsonl"
+    python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --validate-images ".\draw-iphone-run\images"
 
-Normalize an existing image directory in place:
+Render review sheets for an existing run:
 
-```powershell
-python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --normalize-images ".\draw-iphone-run\images"
-```
+    python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --manifest ".\draw-iphone-run\prompt_manifest.jsonl" --render-review-sheets ".\draw-iphone-run\images"
 
-Render deterministic card-frame previews from existing images:
+Use UTF-8 files for large Chinese batches on Windows.
 
-```powershell
-python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --manifest ".\draw-iphone-run\prompt_manifest.jsonl" --render-card-frames ".\draw-iphone-run\images" --frame-out ".\draw-iphone-run\framed"
-```
+## Image2 Contract
 
-Use a file:
+- Model: gpt-image-2
+- Quality: medium
+- Request size: 2048x944
+- Final asset size: 2040x936
+- Frontend reference: 340x156
+- Concurrency: 2
+- Output: png
+- Raw art: images/
+- Thin-frame preview: framed/
+- True-size batch review: review/contact-*.png
 
-```powershell
-python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --file ".\items.txt"
-```
+Keep normalization enabled in production.
 
-Use UTF-8 files or `--items` for Chinese names on Windows. Reject corrupted input such as repeated question marks.
+The default preview grade is neutral bronze. Do not infer gameplay rarity from a brand or product name; pass an explicit grade or use game-owned metadata when another preview grade is required.
 
-Use a production manifest:
+## V2 Manifest
 
-```powershell
-python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --file ".\items.txt" --format jsonl --out ".\iphone-photo-prompts.jsonl"
-```
+New mixed-style rows use `item-art-prompt-manifest/v2` with the `CF250_ITEM_ART_COHESIVE_V3` signature and include:
 
-Generate images from an existing manifest:
+- style_signature
+- style_profile
+- style_family
+- style_assignment
+- style_seed
+- art_direction_signature
+- visual_archetype
+- palette_profile
+- subject_category
+- existing item, subject, size, frame, prompt, and QA fields
 
-```powershell
-python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --manifest ".\iphone-photo-prompts.jsonl" --image2-out ".\draw-iphone-run"
-```
-
-Default image2 settings:
-
-- Model: `gpt-image-2`
-- Quality: `medium`
-- Requested image2 size: `2048x944`
-- Final normalized asset size: `2040x936`
-- Frontend hand-card reference: `340x156`, so final assets are exactly 6x the current hand-card ratio.
-- Base URL: `https://xaapi.ai/v1`
-- Auth: `OPENAI_API_KEY` from process, Windows User env, or Windows Machine env
-- Output format: `png`
-- Concurrency: `2`
-- Raw photo output: `images/`
-- Deterministic game-frame preview output: `framed/`
-
-Do not put API keys in files or prompts.
-
-The image2 provider may return inconsistent natural dimensions. Always keep local normalization enabled unless diagnosing provider output. Use `--no-normalize-images` only for debugging.
-
-Validate a production manifest:
-
-```powershell
-python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --validate-manifest ".\iphone-photo-prompts.jsonl"
-```
-
-Print the finished-image QA checklist:
-
-```powershell
-python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --print-image-qa
-```
-
-## Production Contract
-
-Every production row must include:
-
-- `schema_version`: prompt manifest format version.
-- `style_signature`: fixed style contract id, currently `CF250_IPHONE_REALPHOTO_V1`.
-- `index`: stable batch order.
-- `item_name`: original item name.
-- `subject_kind`: `physical-item` or `tangible-token`.
-- `subject`: concrete photographed subject.
-- `frontend_card_width`: current hand-card width, `340`.
-- `frontend_card_height`: current hand-card height, `156`.
-- `asset_width`: final normalized asset width, `2040`.
-- `asset_height`: final normalized asset height, `936`.
-- `asset_aspect_ratio`: `340:156`.
-- `photo_role`: `raw_item_art`.
-- `ui_overlay_required`: `true`.
-- `visual_grade`: `bronze`, `silver`, `gold`, `diamond`, or `legendary`.
-- `frame_style`: deterministic frame style derived from `visual_grade`.
-- `prompt`: final image prompt to send to the generator.
-- `qa_status`: prompt validation state.
-
-Do not place the style signature inside the image prompt. It is metadata for batch control, not visible image content.
-
-Do not ask image2 to draw rarity borders, card frames, title bars, prices, stats, or badges. Keep those in deterministic overlay metadata and the local `framed/` preview renderer.
+Existing `CF250_ITEM_ART_MIXED_V2` rows and old `iphone-product-photo-prompt-manifest/v1` rows remain valid.
 
 ## Quality Rules
 
-- One prompt equals one image.
-- One input item must become one separate prompt row; never combine several item names into one image prompt.
-- One image has one dominant item.
-- Final image files must be `2040x936` unless the frontend card contract changes.
-- Raw photo files in `images/` must not contain card frames or text.
-- Framed previews in `framed/` may contain deterministic borders, dark title/price shelves, corner plates, and rarity pips.
-- Use ordinary real-life surfaces and natural lighting.
-- Prefer documentary smartphone realism over perfect studio product photography.
-- For services or events, photograph one tangible token: receipt, bill, ticket, invoice, form, phone order screen, or deposit slip.
-- Preserve brand-bearing item names in `item_name`, but keep logos non-dominant in the prompt.
-- Avoid readable real personal data, celebrity references, extra objects competing with the subject, filters, artificial effects, and rendered-art wording.
-- Reject prompts that omit the fixed iPhone base or contain banned old-style words.
+- One input line equals one prompt, one job, and one image.
+- Keep exactly one dominant item and no duplicate product.
+- Preserve real-world identity, silhouette, proportions, function, defining materials, controls, ports, lids, handles, and mechanisms where present.
+- Keep the selected treatment subordinate to the product.
+- Use archetype-specific framing for food, vessels, handheld electronics, appliances, cookware, apparel, documents, and small hard goods.
+- Keep a narrow safe edge margin for UI overlay.
+- Do not generate card frames, UI, rarity decoration, added typography, readable private data, dominant logos, signatures, or watermarks.
+- For an exact branded model, use a product reference image when available. Text-only generation cannot guarantee model fidelity.
+- Review every batch in the generated true-size 340x156 contact sheet before acceptance.
+- Reject failed rows individually; never merge failures into one prompt.
