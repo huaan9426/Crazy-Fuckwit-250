@@ -1,7 +1,7 @@
 interface:
   display_name: "Draw iPhone"
-  short_description: "Generate cohesive, vivid single-item game art."
-  default_prompt: "Use $draw-iphone to turn item names into separate, reproducible game item images under one cohesive art direction."
+  short_description: "Generate vivid item and service-scene game art."
+  default_prompt: "Use $draw-iphone to turn product or service names into separate, reproducible game images under one cohesive art direction."
 
 policy:
   allow_implicit_invocation: true

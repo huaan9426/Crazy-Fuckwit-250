@@ -27,7 +27,7 @@ Keep the signature in manifest metadata, not visible image content.
 
 ## Master Art Direction
 
-Every new mixed-style prompt must keep:
+Physical-item prompts must keep:
 
 - one product as the only hero;
 - dynamic three-quarter or strong diagonal orientation;
@@ -38,7 +38,16 @@ Every new mixed-style prompt must keep:
 - two broad background color masses and one shallow environmental plane;
 - product-authentic body color, construction, controls, ports, lids, handles, and materials.
 
-Do not use six independent visual worlds. The master art direction owns geometry, lighting, scale, silhouette, and background complexity. A profile may change only brushwork, print texture, surface finish, and secondary color treatment.
+Experiential-service prompts must keep:
+
+- one readable experience, place, or action as the sole visual focus;
+- full-width environmental composition with foreground, midground, and background depth;
+- a focal cluster occupying roughly 55 to 72 percent of the frame;
+- only essential people and supporting objects with non-identifying faces;
+- no voucher, email, receipt, membership card, or confirmation page unless explicitly named;
+- no crowd, montage, collage, split panel, or unrelated secondary action.
+
+Do not use six independent visual worlds. The master art direction owns geometry, lighting, scale, silhouette or scene hierarchy, and background complexity. A profile may change only brushwork, print texture, surface finish, and secondary color treatment.
 
 ## Six Surface Treatments
 
@@ -92,17 +101,20 @@ Tickets, bills, receipts, and service tokens use this safer automatic subset:
 
 Fauvist and Baroque remain available as explicit overrides for experiments, but are excluded automatically because they more often deform document structure.
 
-## Universal Subject Rules
+## Universal Representation Rules
 
-- One item name becomes one prompt, one job, and one image.
-- Keep exactly one dominant item with no duplicate copy.
+- One input name becomes one prompt, one job, and one image.
+- Physical goods keep exactly one dominant item with no duplicate copy.
+- Experiential services use one coherent wide scene with one dominant focal cluster.
 - Preserve identity, proportions, function, silhouette, and defining materials.
 - Keep the chosen treatment visible but subordinate to product identity.
 - Keep the subject readable when reduced to 340x156.
 - Keep a narrow 6 percent edge margin for deterministic UI overlay.
 - Direct the brightest local contrast toward the product, not the background.
 - Keep shadow detail open; dark treatments must still pass thumbnail review.
-- Do not add people, hands, competing props, card frames, UI, rarity badges, title bars, stats, signatures, or watermarks.
+- Do not add people, hands, or competing props to physical-item images.
+- In service scenes, allow only essential people and supporting objects; keep faces non-identifying.
+- Do not add card frames, UI, rarity badges, title bars, stats, signatures, or watermarks.
 - Do not add readable personal data or invented readable typography.
 - Keep unavoidable package or document printing abstract and unreadable.
 - Do not restore satire, floating money, warning neon, or dark-humor framing.
@@ -124,6 +136,7 @@ Classify each item before building the prompt:
 - ticket
 - bill-or-receipt
 - service-token
+- service-scene
 - general-product
 
 Use category language only to preserve physical plausibility:
@@ -141,6 +154,7 @@ Use category language only to preserve physical plausibility:
 - ticket: one flat ticket or pass with unreadable printing;
 - bill-or-receipt: one flat bill, invoice, or receipt with no readable private data;
 - service-token: one tangible receipt, ticket, form, damaged object, or payment token;
+- service-scene: the real experience, place, or action itself, using the full wide canvas rather than a confirmation document;
 - general-product: real proportions, function, silhouette, and material.
 
 Classify appliance before drink. `Nespresso 胶囊机` is an appliance, not a drink. Classify drinkware before drink. `Stanley Quencher 保温杯` is drinkware, not a generic product.
@@ -156,6 +170,7 @@ Use a second field for physical composition:
 - cookware
 - soft-apparel
 - flat-document
+- experience-scene
 - small-hard-good
 - hero-product
 
@@ -163,15 +178,26 @@ Semantic category preserves plausibility. Visual archetype controls scale, angle
 
 ## Service Conversion
 
-Represent non-physical purchases with one tangible token:
+Choose representation from the wording, not merely from the fact that money was paid.
 
-- ticket or event -> one paper ticket or one phone ticket screen;
+Use a flat document only when the input explicitly names a document:
+
+- ticket or pass -> one paper ticket or one phone ticket screen;
 - bill or fee -> one receipt, invoice, payment slip, or phone payment page;
-- repair or replacement -> one damaged object or one repair invoice;
-- medical expense -> one registration slip, deposit bill, medicine box, or appointment form;
-- travel expense -> one boarding pass, hotel bill, fuel receipt, or ride receipt.
+- fine -> one fine notice;
+- boarding pass or voucher -> that single named document.
 
-Never combine the service, receipt, phone, money, and surrounding scene in one image.
+Use an experiential scene for services and access products:
+
+- KTV booking -> the private karaoke room experience;
+- digital subscription -> a real use moment centered on the relevant device, with unreadable interface text;
+- fitness membership -> one training moment;
+- car rental -> the rental vehicle in a self-drive journey;
+- grocery delivery -> one doorstep handoff or delivery tote scene;
+- photography package -> one studio shoot;
+- hotel, taxi, repair, medical visit, beauty service, course, or travel service -> one immediately recognizable place or action.
+
+Never combine a service scene with its receipt, phone confirmation, money, and voucher. Pick the experience or the explicitly named document, never both.
 
 ## Composition by Archetype
 
@@ -180,6 +206,7 @@ Never combine the service, receipt, phone, money, and surrounding scene in one i
 - Appliance: grounded three-quarter hero view with its complete footprint and no invented attachment.
 - Cookware: low three-quarter view separating body, lid, rim, handles, and finish.
 - Apparel: complete wearable silhouette, 68 to 80 percent of the usable frame, with one controlled fold or lifted edge.
+- Experience scene: dominant action or focal cluster at 55 to 72 percent, using the full canvas and a clear three-depth hierarchy.
 - Food, small hard goods, and general products: 78 to 86 percent of usable area with the identifying silhouette visible.
 
 Do not force a tall bottle into a centered vertical catalog pose inside the wide card.
@@ -223,29 +250,30 @@ Every new row includes:
 
 Pass only prompts that contain:
 
-- one single-item subject;
+- one physical item, explicit document, or coherent service scene;
 - wide horizontal 340:156 item-card composition;
-- one dominant item only;
+- one dominant physical item or one dominant service-scene focal cluster;
 - category-safe scale and orientation;
 - narrow 6 percent safe margin;
 - one exact style-profile anchor;
 - the master art-direction anchor;
 - one stable palette profile;
-- product-identity preservation;
+- item-identity or service-identity preservation;
 - no duplicate, UI, border, private data, signature, or watermark.
 
 ## Image QA
 
 Pass only images that satisfy all checks:
 
-- one recognizable item and no duplicate;
-- authentic product geometry, hardware layout, materials, and defining parts;
-- visible treatment subordinate to the product;
+- one recognizable physical item, explicit document, or coherent service scene;
+- authentic physical-product geometry, or an immediately recognizable real service experience;
+- visible treatment subordinate to item or service identity;
 - two broad background masses, one restrained accent, readable midtones, and open shadows;
 - readable silhouette and focal contrast at 340x156;
-- no competing props, people, hands, frame, or UI;
+- no competing props, people, or hands for physical items; only essential people and props for service scenes;
+- no voucher, email, receipt, membership card, or confirmation page in a service scene unless explicitly named;
 - no readable private data, invented typography, signature, or watermark;
-- exact final size 2040x936.
+- exact final size 2040x936;
 - reviewed beside adjacent items in review/contact-*.png.
 
 Reject and regenerate failures row by row.

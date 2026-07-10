@@ -1,6 +1,6 @@
 ---
 name: draw-iphone
-description: Generate separate single-item game UI art prompts and gpt-image-2 batches for Crazy-Fuckwit-250 through one cohesive game-art direction and six deterministic surface treatments, with backward-compatible earlier mixed-art and iPhone realism modes. Use when the user says /draw iphone, asks for item-card art, supplies product, food, drinkware, appliance, ticket, receipt, bill, service, or commodity names, or wants vivid but reproducible item image batches.
+description: Generate separate physical-item or experiential-service game UI images and gpt-image-2 batches for Crazy-Fuckwit-250 through one cohesive game-art direction and six deterministic surface treatments, with backward-compatible earlier mixed-art and iPhone realism modes. Use when the user says /draw iphone, asks for item-card art, supplies product, food, drinkware, appliance, ticket, receipt, bill, subscription, booking, delivery, rental, service, or commodity names, or wants vivid but reproducible item image batches.
 ---
 
 # Draw iPhone
@@ -13,7 +13,7 @@ Generate prompts and images only. Do not modify game code, database schema, UI r
 
 Call gpt-image-2 only when the user says /draw iphone or explicitly requests image generation.
 
-Keep one input item per prompt and one dominant item per image. Never merge a list into one image.
+Keep one input line per prompt and image. Physical goods use one dominant item. Experiential services use one coherent wide scene with one dominant action or focal cluster. Never merge several input lines into one image.
 
 Keep card borders, title bars, prices, stats, rarity badges, and other UI in the deterministic overlay layer.
 
@@ -29,6 +29,8 @@ Use `CF250_GAME_ITEM_ART_BIBLE_V1` for every new mixed-style image:
 - two broad background color masses and one restrained accent;
 - no competing props, scene clutter, card UI, or generated frame.
 
+For experiential services, replace the product hero with one readable experience, place, or action. Use foreground, midground, and background depth across the full canvas. Allow only essential people and props; prohibit crowds, collages, split panels, and unrelated secondary actions.
+
 Use these six profiles only as subordinate surface treatments:
 
 - fauvist-paint
@@ -42,7 +44,7 @@ Assign style and palette profiles with stable SHA-256 selection. The same item a
 
 Do not use runtime randomness for production. Change --style-seed only to create a deliberate new art-direction pass.
 
-Classify physical form separately from semantic category. New rows use one of: `food-closeup`, `tall-vessel`, `handheld-electronics`, `appliance`, `cookware`, `soft-apparel`, `flat-document`, `small-hard-good`, or `hero-product`.
+Classify physical form separately from semantic category. New rows use one of: `food-closeup`, `tall-vessel`, `handheld-electronics`, `appliance`, `cookware`, `soft-apparel`, `flat-document`, `experience-scene`, `small-hard-good`, or `hero-product`.
 
 For tickets, bills, receipts, and service tokens, use the safer four-style subset defined in `references/iphone-photo-rules.md`.
 
@@ -62,7 +64,7 @@ When a message starts with /draw iphone, treat the remaining non-empty lines as 
 
 1. Read item names from the user, a UTF-8 file, or stdin.
 2. Preserve item order and reject corrupted input.
-3. Convert every item into one concrete physical subject or tangible service token.
+3. Convert every input into one physical subject, explicit document token, or experiential service scene.
 4. Classify its semantic category and visual archetype.
 5. Select stable style and palette profiles unless the user forces a style.
 6. Build and validate one prompt row per item.
@@ -152,11 +154,14 @@ Existing `CF250_ITEM_ART_MIXED_V2` rows and old `iphone-product-photo-prompt-man
 ## Quality Rules
 
 - One input line equals one prompt, one job, and one image.
-- Keep exactly one dominant item and no duplicate product.
+- Keep exactly one dominant physical item, or one coherent service scene with one dominant focal cluster.
+- Use a document only when the input explicitly names a ticket, pass, bill, invoice, receipt, fine, voucher, or boarding pass.
+- Render subscriptions, bookings, memberships, delivery, rentals, fitness, photography, hotels, taxi rides, repairs, and similar services as the real experience rather than a confirmation document.
 - Preserve real-world identity, silhouette, proportions, function, defining materials, controls, ports, lids, handles, and mechanisms where present.
 - Keep the selected treatment subordinate to the product.
 - Use archetype-specific framing for food, vessels, handheld electronics, appliances, cookware, apparel, documents, and small hard goods.
 - Keep a narrow safe edge margin for UI overlay.
+- In physical-item images, do not add people, hands, or competing props. In service scenes, allow only essential people and supporting objects with non-identifying faces.
 - Do not generate card frames, UI, rarity decoration, added typography, readable private data, dominant logos, signatures, or watermarks.
 - For an exact branded model, use a product reference image when available. Text-only generation cannot guarantee model fidelity.
 - Review every batch in the generated true-size 340x156 contact sheet before acceptance.

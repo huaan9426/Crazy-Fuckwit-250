@@ -70,12 +70,19 @@ STYLE_PROFILE_ORDER = (
     "retro-east-asian-ad",
 )
 STYLE_CHOICES = ("auto", "iphone-realphoto", *STYLE_PROFILE_ORDER)
-MASTER_ART_DIRECTION = (
+MASTER_ITEM_ART_DIRECTION = (
     "Unified premium game item illustration with cinematic commercial realism and a polished hand-painted finish. "
     "Present the product as the only hero in a dynamic three-quarter or strong diagonal view, with a complete readable silhouette, "
     "crisp material highlights, a localized luminous key and rim light, readable midtones, and open shadow detail. "
     "Use subtle lens perspective for impact without warping product geometry. Build the background from two broad color masses "
     "and one shallow environmental plane, keeping all visual energy directed toward the product"
+)
+MASTER_SCENE_ART_DIRECTION = (
+    "Unified premium game service-scene illustration with cinematic advertising realism and a polished hand-painted finish. "
+    "Present one immediately readable experience, place, or action as the sole visual focus in a wide environmental composition, "
+    "using dynamic perspective, a clear foreground-midground-background hierarchy, localized key and rim light, readable midtones, "
+    "and open shadow detail. Allow only the people and supporting objects essential to explain the service, keep faces non-identifying, "
+    "and build the scene from two broad color masses without crowds, montages, split panels, or unrelated activities"
 )
 STYLE_PROFILES = {
     "fauvist-paint": {
@@ -186,6 +193,7 @@ CATEGORY_CUES = {
     "ticket": "keep one ticket or pass recognizable by shape and layout while all printed details remain abstract and unreadable",
     "bill-or-receipt": "keep one bill, invoice, or receipt recognizable by shape and layout with no readable personal or payment data",
     "service-token": "show one tangible token that clearly represents the service while all private details remain unreadable",
+    "service-scene": "show the real experience, place, or action itself rather than a voucher, receipt, email, membership card, or confirmation screen",
     "general-product": "preserve real-world proportions, defining silhouette, function, and material texture",
 }
 
@@ -197,6 +205,7 @@ VISUAL_ARCHETYPE_CUES = {
     "cookware": "use a low three-quarter view that clearly separates body, lid, rim, handles, and material finish",
     "soft-apparel": "show the complete wearable silhouette with one controlled flowing fold or lifted edge, no body, mannequin, hanger, or extra garment",
     "flat-document": "show the complete single document at a slight perspective angle with clean outer edges and abstract unreadable printing",
+    "experience-scene": "use the full wide canvas for one immediately recognizable service moment with one dominant focal cluster and limited supporting context",
     "small-hard-good": "use a macro three-quarter hero view with precise construction, tactile surface detail, and a clean complete silhouette",
     "hero-product": "use a grounded three-quarter hero view with the complete defining silhouette and function immediately readable",
 }
@@ -228,6 +237,16 @@ DETAILS = {
     "老凤祥金饰": "gold jewelry piece on a plain counter, metal texture and reflection visible, no luxury display staging",
 }
 
+SERVICE_SCENE_DETAILS = {
+    "钱柜KTV（包厢预订）": "one vivid private-room KTV experience centered on a glowing karaoke display and a single microphone in a premium empty room ready for guests, no booking document or readable lyrics",
+    "ChatGPT Plus 订阅": "one modern creator workspace centered on a laptop displaying an abstract AI conversation interface, one seated user silhouette optional, no confirmation email, voucher, receipt, or readable screen text",
+    "Keep健身App年卡": "one energetic fitness-app training moment centered on a single athlete running on a treadmill with one nearby phone showing abstract workout rings, no membership card or readable interface text",
+    "携程租车（自驾游SUV）": "one modern SUV as the clear hero driving through a broad scenic mountain road, communicating a self-drive rental journey without any reservation document or readable road sign",
+    "盒马鲜生（生鲜配送）": "one fresh-grocery delivery moment centered on a chilled delivery tote at a bright apartment doorway, seafood and produce limited to supporting context, no order receipt or readable branding",
+    "叮咚买菜": "one doorstep grocery-delivery moment centered on a courier handing over a single vegetable-filled delivery bag, limited supporting produce, no order receipt or readable branding",
+    "摄影工作室（婚纱照套系）": "one cinematic wedding portrait session in a professional studio, a bride and groom forming one focal pair under softbox light with a camera silhouette in the foreground, no booking voucher or readable text",
+}
+
 DETAIL_KINDS = {
     "包子": "physical-item",
     "咖啡": "physical-item",
@@ -249,7 +268,7 @@ DETAIL_KINDS = {
     "老凤祥金饰": "physical-item",
 }
 
-SERVICE_HINTS = (
+DOCUMENT_HINTS = (
     "票",
     "券",
     "账单",
@@ -257,20 +276,60 @@ SERVICE_HINTS = (
     "发票",
     "收据",
     "押金",
+    "缴费",
+    "费用",
     "补费",
     "手续费",
     "加价",
     "溢价",
     "赔付",
     "退款",
-    "急诊",
-    "检查",
-    "换新",
-    "维修",
-    "套餐",
+    "invoice",
+    "receipt",
+    "bill",
+    "ticket",
+    "boarding pass",
+)
+
+SERVICE_SCENE_HINTS = (
+    "预订",
+    "预约",
+    "订阅",
+    "年卡",
     "会员",
+    "套餐",
+    "套系",
+    "配送",
+    "外卖",
+    "租车",
+    "自驾",
+    "摄影",
+    "婚纱照",
+    "健身",
+    "买菜",
     "酒店",
     "打车",
+    "急诊",
+    "检查",
+    "维修",
+    "换新",
+    "保洁",
+    "美容",
+    "理发",
+    "按摩",
+    "课程",
+    "培训",
+    "旅行",
+    "旅游",
+    "快递",
+    "service",
+    "subscription",
+    "membership",
+    "booking",
+    "rental",
+    "delivery",
+    "fitness",
+    "photography",
 )
 
 LEGACY_BANNED_TERMS = (
@@ -335,11 +394,32 @@ MIXED_REQUIRED_PHRASES = (
     "no watermark",
 )
 
-COHESIVE_REQUIRED_PHRASES = (
+SCENE_REQUIRED_PHRASES = (
+    "Single-image game UI artwork for",
+    "Wide horizontal 340:156 item-card art composition",
+    "one dominant visual focus only",
+    "full wide canvas",
+    "narrow 6 percent safe edge margin",
+    "one coherent scene",
+    "No voucher",
+    "No montage",
+    "no card border",
+    "no game UI",
+    "no watermark",
+)
+
+COHESIVE_ITEM_REQUIRED_PHRASES = (
     "Unified premium game item illustration",
     "two broad color masses",
     "preserving the product's authentic body color",
     "match its known silhouette and hardware layout",
+)
+
+COHESIVE_SCENE_REQUIRED_PHRASES = (
+    "Unified premium game service-scene illustration",
+    "foreground-midground-background hierarchy",
+    "two broad color masses",
+    "faces non-identifying",
 )
 
 LEGACY_IMAGE_QA_CHECKS = (
@@ -354,13 +434,14 @@ LEGACY_IMAGE_QA_CHECKS = (
 )
 
 IMAGE_QA_CHECKS = (
-    "one clear main subject and no duplicate item",
-    "subject occupies about 70 to 88 percent of the usable frame and remains recognizable at 340x156",
-    "authentic product silhouette, hardware layout, materials, and defining parts; no invented logo or mechanism",
-    "selected style treatment stays subordinate to product identity",
+    "one clear physical item or one coherent service scene, never a collage",
+    "physical item occupies about 70 to 88 percent, or a service focal cluster occupies about 55 to 72 percent, and remains recognizable at 340x156",
+    "physical goods preserve authentic geometry and materials; service scenes show the actual experience rather than a voucher or email unless explicitly requested",
+    "service scenes contain only essential people and supporting objects, with non-identifying faces and no crowd",
+    "selected style treatment stays subordinate to item or service identity",
     "two broad background color masses, one restrained accent, readable midtones, and open shadow detail",
-    "localized light and motion energy direct attention toward the item rather than the background",
-    "no competing props, people, hands, card border, game UI, or rarity badge",
+    "localized light and motion energy direct attention toward the item or service focal cluster rather than the background",
+    "no card border, game UI, rarity badge, or scene clutter; physical-item images contain no people or hands",
     "no readable private data, invented typography, signature, or watermark",
     "exact final pixel size 2040x936",
     "reviewed in a true-size 340x156 contact sheet beside adjacent batch items",
@@ -382,19 +463,32 @@ def validate_item_name(item: str) -> list[str]:
     return errors
 
 
+def has_hint(item: str, hints: tuple[str, ...]) -> bool:
+    normalized = item.casefold()
+    return any(hint.casefold() in normalized for hint in hints)
+
+
 def subject_for(item: str) -> str:
     if item in DETAILS:
         return DETAILS[item]
-    if any(hint in item for hint in SERVICE_HINTS):
+    if item in SERVICE_SCENE_DETAILS:
+        return SERVICE_SCENE_DETAILS[item]
+    if has_hint(item, DOCUMENT_HINTS):
+        if has_hint(item, ("票", "券", "ticket", "boarding pass")):
+            return f"one real ticket or pass representing {item}, shown alone with a complete outline and no readable barcode or private information"
         return f"real receipt or payment slip representing {item}, placed on an ordinary table, no readable private information"
+    if has_hint(item, SERVICE_SCENE_HINTS):
+        return f"one cinematic real-world service experience representing {item}, centered on one immediately recognizable place or action with limited supporting context"
     return f"named real-world product {item}, shown alone with its authentic market shape and defining material texture"
 
 
 def subject_kind(item: str) -> str:
     if item in DETAIL_KINDS:
         return DETAIL_KINDS[item]
-    if any(hint in item for hint in SERVICE_HINTS):
+    if has_hint(item, DOCUMENT_HINTS):
         return "tangible-token"
+    if item in SERVICE_SCENE_DETAILS or has_hint(item, SERVICE_SCENE_HINTS):
+        return "experience-scene"
     return "physical-item"
 
 
@@ -406,6 +500,8 @@ def subject_category_for(item: str) -> str:
         return "ticket"
     if subject_kind(item) == "tangible-token":
         return "service-token"
+    if subject_kind(item) == "experience-scene":
+        return "service-scene"
     if any(
         hint in normalized
         for hint in (
@@ -450,9 +546,9 @@ def subject_category_for(item: str) -> str:
         return "cookware"
     if any(hint in normalized for hint in ("咖啡", "酒", "茶", "饮料", "可乐", "果汁", "矿泉水", "牛奶", "酸奶", "coffee", "wine", "tea", "beverage", "juice", "milk")):
         return "drink"
-    if any(hint in normalized for hint in ("香皂", "雪花膏", "面膜", "香水", "口红", "洗发", "护肤", "牙膏", "化妆")):
+    if any(hint in normalized for hint in ("香皂", "雪花膏", "面霜", "面膜", "香水", "口红", "洗发", "护肤", "牙膏", "化妆", "face cream", "moisturizer")):
         return "personal-care"
-    if any(hint in normalized for hint in ("手机", "电脑", "耳机", "相机", "电视", "手表", "充电", "键盘", "鼠标", "游戏机", "平板", "显示器", "路由器", "音箱", "电器", "power bank", "smartphone", "laptop", "headphones", "camera", "keyboard", "mouse", "console", "tablet", "monitor", "router", "speaker")):
+    if any(hint in normalized for hint in ("手机", "电脑", "耳机", "相机", "电视", "手表", "充电", "键盘", "鼠标", "游戏机", "平板", "显示器", "路由器", "音箱", "电器", "airpods", "earbuds", "nintendo switch", "power bank", "smartphone", "laptop", "headphones", "camera", "keyboard", "mouse", "console", "tablet", "monitor", "router", "speaker")):
         return "electronics"
     if any(hint in normalized for hint in ("金饰", "首饰", "项链", "戒指", "手镯", "耳环", "钻石", "黄金", "珠宝")):
         return "jewelry"
@@ -469,6 +565,8 @@ def visual_archetype_for(item: str) -> str:
     category = subject_category_for(item)
     if category in {"ticket", "bill-or-receipt", "service-token"}:
         return "flat-document"
+    if category == "service-scene":
+        return "experience-scene"
     if category == "food":
         return "food-closeup"
     if category in {"drink", "drinkware"}:
@@ -509,6 +607,8 @@ def composition_cue_for(item: str) -> str:
     archetype = visual_archetype_for(item)
     if archetype == "flat-document":
         return "the single flat token occupies 70 to 82 percent of the frame width at a slight perspective angle while its full outline stays visible"
+    if archetype == "experience-scene":
+        return "the dominant action or focal cluster occupies 55 to 72 percent of the frame while the environment uses the full width and remains readable at thumbnail size"
     if archetype in {"tall-vessel", "handheld-electronics", "small-hard-good"}:
         return "the item's long axis runs diagonally across the frame and occupies 76 to 88 percent of the usable long dimension while the full identity stays readable"
     if archetype == "soft-apparel":
@@ -559,10 +659,21 @@ def prompt_for(item: str, requested_style: str = "auto", style_seed: str = DEFAU
     category = subject_category_for(item)
     archetype = visual_archetype_for(item)
     palette = palette_profile_for(item, style_seed)
+    if archetype == "experience-scene":
+        return (
+            f"Single-image game UI artwork for {subject_for(item)}, {CATEGORY_CUES[category]}. "
+            f"Wide horizontal 340:156 item-card art composition using the full wide canvas, one dominant visual focus only, {composition_cue_for(item)}, "
+            f"{VISUAL_ARCHETYPE_CUES[archetype]}. {MASTER_SCENE_ART_DIRECTION}. "
+            f"Use {PALETTE_PROFILES[palette]} mainly in environmental color and light accents while preserving plausible local colors. "
+            f"Apply this controlled surface treatment: {STYLE_PROFILES[style_profile]['prompt']}. "
+            f"Keep a narrow 6 percent safe edge margin and one coherent scene. No voucher, receipt, invoice, email, membership card, confirmation page, or document unless explicitly named by the input. "
+            f"No montage, no collage, no split panel, no crowd, no unrelated secondary action, no readable personal data, no added typography, "
+            f"no card border, no game UI, no rarity badge, no signature, no watermark"
+        )
     return (
         f"Single-item game UI artwork of a single {subject_for(item)}, {CATEGORY_CUES[category]}. "
         f"Wide horizontal 340:156 item-card art composition, one dominant item only, {composition_cue_for(item)}, "
-        f"{VISUAL_ARCHETYPE_CUES[archetype]}. {MASTER_ART_DIRECTION}. "
+        f"{VISUAL_ARCHETYPE_CUES[archetype]}. {MASTER_ITEM_ART_DIRECTION}. "
         f"Use {PALETTE_PROFILES[palette]} mainly in the background and light accents, preserving the product's authentic body color. "
         f"Apply this controlled surface treatment: {STYLE_PROFILES[style_profile]['prompt']}. "
         f"Keep a narrow 6 percent safe edge margin. Preserve the item's real-world identity, proportions, function, and defining material cues. "
@@ -572,14 +683,21 @@ def prompt_for(item: str, requested_style: str = "auto", style_seed: str = DEFAU
     )
 
 
-def validate_prompt(prompt: str, style_profile: str = "iphone-realphoto", require_cohesive: bool = False) -> list[str]:
+def validate_prompt(
+    prompt: str,
+    style_profile: str = "iphone-realphoto",
+    require_cohesive: bool = False,
+    visual_archetype: Optional[str] = None,
+) -> list[str]:
     if style_profile == "iphone-realphoto":
         errors = [f"missing required phrase: {phrase}" for phrase in LEGACY_REQUIRED_PHRASES if phrase not in prompt]
         banned_terms = LEGACY_BANNED_TERMS
     elif style_profile in STYLE_PROFILES:
-        errors = [f"missing required phrase: {phrase}" for phrase in MIXED_REQUIRED_PHRASES if phrase not in prompt]
+        required_phrases = SCENE_REQUIRED_PHRASES if visual_archetype == "experience-scene" else MIXED_REQUIRED_PHRASES
+        errors = [f"missing required phrase: {phrase}" for phrase in required_phrases if phrase not in prompt]
         if require_cohesive:
-            errors.extend(f"missing required phrase: {phrase}" for phrase in COHESIVE_REQUIRED_PHRASES if phrase not in prompt)
+            cohesive_phrases = COHESIVE_SCENE_REQUIRED_PHRASES if visual_archetype == "experience-scene" else COHESIVE_ITEM_REQUIRED_PHRASES
+            errors.extend(f"missing required phrase: {phrase}" for phrase in cohesive_phrases if phrase not in prompt)
         anchors = (
             str(STYLE_PROFILES[style_profile]["prompt"]).split(" with ", 1)[0],
             LEGACY_MIXED_STYLE_ANCHORS[style_profile],
@@ -608,7 +726,8 @@ def record_for(
         raise ValueError(f"{item}: {'; '.join(item_errors)}")
     style_profile = style_profile_for(item, requested_style, style_seed)
     prompt = prompt_for(item, style_profile, style_seed)
-    errors = validate_prompt(prompt, style_profile, style_profile != "iphone-realphoto")
+    archetype = visual_archetype_for(item)
+    errors = validate_prompt(prompt, style_profile, style_profile != "iphone-realphoto", archetype)
     if errors:
         raise ValueError(f"{item}: {'; '.join(errors)}")
     visual_grade = visual_grade_for(item, requested_grade)
@@ -640,7 +759,7 @@ def record_for(
                 "style_assignment": STYLE_ASSIGNMENT if requested_style == "auto" else "explicit",
                 "style_seed": style_seed,
                 "art_direction_signature": ART_DIRECTION_SIGNATURE,
-                "visual_archetype": visual_archetype_for(item),
+                "visual_archetype": archetype,
                 "palette_profile": palette_profile_for(item, style_seed),
             }
         )
@@ -707,8 +826,8 @@ def validate_record(record: dict[str, object], seen_indexes: set[int]) -> list[s
     if index in seen_indexes:
         errors.append(f"duplicate index: {index}")
     seen_indexes.add(index)
-    if record["subject_kind"] not in {"physical-item", "tangible-token"}:
-        errors.append("subject_kind must be physical-item or tangible-token")
+    if record["subject_kind"] not in {"physical-item", "tangible-token", "experience-scene"}:
+        errors.append("subject_kind must be physical-item, tangible-token, or experience-scene")
     if "asset_width" in record and int(str(record["asset_width"])) != DEFAULT_ASSET_WIDTH:
         errors.append(f"asset_width must be {DEFAULT_ASSET_WIDTH}")
     if "asset_height" in record and int(str(record["asset_height"])) != DEFAULT_ASSET_HEIGHT:
@@ -722,6 +841,7 @@ def validate_record(record: dict[str, object], seen_indexes: set[int]) -> list[s
             str(record["prompt"]),
             style_profile,
             str(record.get("style_signature", "")).startswith(f"{STYLE_SET_SIGNATURE}/"),
+            str(record.get("visual_archetype", "")) or None,
         )
     )
     if record["qa_status"] != "prompt_validated":
