@@ -139,6 +139,16 @@ Classify each item before building the prompt:
 - service-scene
 - general-product
 
+For a structured game catalog, classify in this order:
+
+1. An explicit ticket, bill, receipt, fee, or deposit word remains a flat document or service token.
+2. A known item or an explicit service word keeps the existing name-based result.
+3. A specific service tag such as `repair`, `medical`, `education`, `travel`, `subscription`, or `income` produces an experiential service scene.
+4. A high-confidence physical tag such as `food`, `drink`, `digital`, or `appliance` preserves the physical category when no stronger service meaning exists.
+5. The existing content `category` and `sceneId` resolve the remaining ambiguous rows. Unknown future values fall back to the name rules.
+
+Do not infer image composition from price, tier, weight, buying limits, or other gameplay tuning. Name-only input has no catalog metadata and must retain the earlier deterministic behavior.
+
 Use category language only to preserve physical plausibility:
 
 - food: edible structure and fresh surface texture, no garnish;
@@ -235,6 +245,7 @@ Every new row includes:
 - visual_archetype
 - palette_profile
 - index
+- item_id when the source is a structured game catalog; use it as the output filename instead of the batch index
 - item_name
 - subject_kind
 - subject_category

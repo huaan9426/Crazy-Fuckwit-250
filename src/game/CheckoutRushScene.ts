@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { DEFAULT_BALANCE_TUNING } from "./constants";
 import { formatDuration, formatMoney } from "./format";
+import { findItemArtwork, listItemArtworkAssets } from "./itemArtwork";
 import type {
   BalanceTuning,
   GameBootstrap,
@@ -92,6 +93,7 @@ type ActiveStatus = {
 
 type DebugCardSnapshot = {
   id: string;
+  itemId: string;
   name: string;
   total: number;
   price: number;
@@ -102,6 +104,7 @@ type DebugCardSnapshot = {
   y: number;
   selected: boolean;
   affordable: boolean;
+  artwork: "loaded" | "fallback" | "unmapped";
 };
 
 type DebugSnapshot = {
@@ -127,15 +130,18 @@ const TIER_WEIGHT: Record<Item["tier"], number> = {
   income: 0.68
 };
 
-const TIER_COLORS: Record<Item["tier"], { fill: number; stroke: number; text: string }> = {
-  coin: { fill: 0x202a32, stroke: 0x9fb9c7, text: "#edf6fb" },
-  small: { fill: 0x223033, stroke: 0x9fd2c6, text: "#effbf7" },
-  daily: { fill: 0x2e2b24, stroke: 0xe5c167, text: "#fff6de" },
-  premium: { fill: 0x312b29, stroke: 0xe1b384, text: "#fff0df" },
-  large: { fill: 0x302a30, stroke: 0xc9b3d8, text: "#f7ecff" },
-  heavy: { fill: 0x32292b, stroke: 0xd0aaa6, text: "#fff0ec" },
-  shock: { fill: 0x2a2833, stroke: 0xd7c88b, text: "#fff7d7" },
-  income: { fill: 0x123822, stroke: 0x5fff9c, text: "#d8ffe7" }
+const TIER_COLORS: Record<
+  Item["tier"],
+  { fill: number; stroke: number; highlight: number; shadow: number; glow: number; text: string }
+> = {
+  coin: { fill: 0x172028, stroke: 0x9fb9c7, highlight: 0xf1fbff, shadow: 0x24323b, glow: 0x74d9ff, text: "#edf6fb" },
+  small: { fill: 0x14251f, stroke: 0x8fd5bd, highlight: 0xedfff8, shadow: 0x17372f, glow: 0x6fffd5, text: "#effbf7" },
+  daily: { fill: 0x2a2112, stroke: 0xe4b94e, highlight: 0xfff1b8, shadow: 0x5b3a0c, glow: 0xffcc55, text: "#fff6de" },
+  premium: { fill: 0x2b1d17, stroke: 0xe09b62, highlight: 0xffe0c2, shadow: 0x5b2b18, glow: 0xff9c61, text: "#fff0df" },
+  large: { fill: 0x241927, stroke: 0xc79ae8, highlight: 0xf4dcff, shadow: 0x472653, glow: 0xd57cff, text: "#f7ecff" },
+  heavy: { fill: 0x2b171b, stroke: 0xdb7f88, highlight: 0xffd8d5, shadow: 0x5f2028, glow: 0xff6676, text: "#fff0ec" },
+  shock: { fill: 0x2c160f, stroke: 0xf0b23f, highlight: 0xffefb4, shadow: 0x761d14, glow: 0xff4d32, text: "#fff7d7" },
+  income: { fill: 0x0d2b1b, stroke: 0x55f39a, highlight: 0xdffff0, shadow: 0x0c4c2a, glow: 0x41ff91, text: "#d8ffe7" }
 };
 
 /*
@@ -160,6 +166,11 @@ const PAYMENT_LANE_X_RATIO = 0.5;
 const PAYMENT_LANE_Y_RATIO = 0.83;
 const VISA_PAYMENT_LABEL = "VISA 延迟扣款";
 const CLEAR_CART_PAYMENT_LABEL = "清空购物车";
+const ARTWORK_INSET_PX = 6;
+const ARTWORK_LABEL_BACKGROUND = "rgba(5, 5, 5, 0.7)";
+const ARTWORK_PRICE_BACKGROUND = "rgba(5, 5, 5, 0.76)";
+const CARD_BACKPLATE_OVERHANG_PX = 5;
+const CARD_BACKPLATE_DROP_PX = 5;
 
 function resolveBalanceTuning(bootstrap: GameBootstrap): BalanceTuning {
   const remote = bootstrap.config.balanceTuning;
@@ -240,6 +251,21 @@ function isSpend(item: Item): boolean {
   return item.tier !== "income";
 }
 
+function cardTitleFontSize(itemName: string, cardWidth: number): string {
+  /*
+   * 中文商品名通常没有空格，窄屏上的一张卡只有约 100 像素宽。只设置 wordWrapWidth 时，
+   * 字号仍可能大到两行都放不下，标题就会越过相邻卡片。这里先按字符数估算“两行能容纳的
+   * 最大字号”，再由 Phaser 的 advanced word wrap 做真实断行；桌面端仍保留 18px 上限，
+   * 移动端遇到长模板名时才逐步缩小，最小 9px 避免文字小到完全无法辨认。
+   */
+  const maximumSize = cardWidth < 150 ? 14 : 18;
+  const glyphCount = Math.max(1, Array.from(itemName).length);
+  const availableWidth = Math.max(40, cardWidth - 22);
+  const sizeThatFitsTwoLines = Math.floor((availableWidth * 2) / glyphCount);
+
+  return `${Phaser.Math.Clamp(sizeThatFitsTwoLines, 9, maximumSize)}px`;
+}
+
 /**
  * 这个 Scene 是当前游戏的一局。它现在不再使用“商品持续移动然后连点”的玩法，
  * 而是按开发计划里的货架思路：一次展示 9 张商品卡，玩家从中选一张，
@@ -295,6 +321,11 @@ export class CheckoutRushScene extends Phaser.Scene {
      */
     this.handleCanvasPointerDown(x, y);
   };
+  private readonly handleScaleResize = (): void => {
+    this.redrawArena();
+    this.renderHand();
+    this.renderHandTimer(performance.now());
+  };
 
   constructor(
     private readonly bootstrap: GameBootstrap,
@@ -304,6 +335,21 @@ export class CheckoutRushScene extends Phaser.Scene {
     this.callbacks = callbacks;
     this.tuning = resolveBalanceTuning(bootstrap);
     this.state = createInitialState(bootstrap, this.tuning);
+  }
+
+  preload(): void {
+    /*
+     * Phaser 的 preload 会在 create 之前完成资源请求。资源索引里只包含已经制作并提交的图片，
+     * 所以这里不会按内容包里的每个数据库 id 猜 URL。图片请求成功后会进入 Phaser 的纹理管理器；
+     * 请求失败时纹理不存在，后面的 createArtworkImage 会返回 null，卡牌自动退回原来的程序
+     * 绘制样式。加载失败只影响这一张商品图，不会阻止 Scene 创建，也不会改变抽卡和结算。
+     */
+    const contentItemIds = new Set(this.bootstrap.items.map((item) => item.id));
+    for (const asset of listItemArtworkAssets()) {
+      if (contentItemIds.has(asset.itemId) && !this.textures.exists(asset.textureKey)) {
+        this.load.image(asset.textureKey, asset.url);
+      }
+    }
   }
 
   create(): void {
@@ -322,14 +368,23 @@ export class CheckoutRushScene extends Phaser.Scene {
     this.attachCanvasPointerListener();
     this.installDebugSnapshot();
     this.redrawArena();
-
-    this.scale.on("resize", () => {
-      this.redrawArena();
-      this.renderHand();
-      this.renderHandTimer(performance.now());
-    });
+    this.attachScaleResizeListener();
 
     this.emitState();
+  }
+
+  private attachScaleResizeListener(): void {
+    /*
+     * Scale Manager 属于整个 Phaser Game，而不是只属于当前 Scene。匿名 resize 回调如果
+     * 不解绑，旧 Scene 关闭后仍会收到下一次尺寸变化，并尝试调用已经销毁的 Graphics.clear，
+     * 浏览器就会报告一次看似偶发的启动错误。这里先移除同一个固定函数，避免 Scene 被重新
+     * create 时重复注册，再在 SHUTDOWN 和 DESTROY 两个生命周期出口清理。两个出口都调用
+     * off 是安全的：Phaser 找不到监听器时只会保持原状，不会影响新 Scene 的回调。
+     */
+    this.scale.off("resize", this.handleScaleResize);
+    this.scale.on("resize", this.handleScaleResize);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off("resize", this.handleScaleResize));
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => this.scale.off("resize", this.handleScaleResize));
   }
 
   private attachCanvasPointerListener(): void {
@@ -372,6 +427,7 @@ export class CheckoutRushScene extends Phaser.Scene {
       targetSpend: this.targetSpendPerSelection(),
       cards: this.cards.map((card) => ({
         id: card.id,
+        itemId: card.item.id,
         name: card.item.name,
         total: this.cardTotal(card),
         price: card.item.price,
@@ -381,7 +437,8 @@ export class CheckoutRushScene extends Phaser.Scene {
         x: card.x,
         y: card.y,
         selected: card.selected,
-        affordable: this.cardIsAffordable(card)
+        affordable: this.cardIsAffordable(card),
+        artwork: this.cardArtworkState(card.item)
       }))
     };
   }
@@ -1384,30 +1441,45 @@ export class CheckoutRushScene extends Phaser.Scene {
     const palette = TIER_COLORS[item.tier];
     const total = this.cardTotal(card);
     const container = this.add.container(card.x, card.y).setDepth(40);
+    const backplate = this.add.graphics();
     const shape = this.add.graphics();
-    const titleSize = width < 150 ? "14px" : "18px";
-    const priceSize = width < 150 ? "18px" : total >= this.tuning.highPriceThreshold ? "22px" : "25px";
+    const compactCard = width < 150;
+    const titleSize = cardTitleFontSize(item.name, width);
+    const priceSize = compactCard ? "18px" : total >= this.tuning.highPriceThreshold ? "22px" : "25px";
+    const badgeX = width / 2 - (compactCard ? 14 : 34);
+    const badgeY = -height / 2 + (compactCard ? 10 : 20);
+    const badgeColor = card.multiplier.multiplier > 1 ? 0x57fff3 : palette.stroke;
     const multiplierBadge = this.add
-      .text(width / 2 - 34, -height / 2 + 20, card.multiplier.label, {
+      .text(badgeX, badgeY, card.multiplier.label, {
         align: "center",
-        color: "#050505",
+        color: card.multiplier.multiplier > 1 ? "#bafff9" : "#fff0b5",
         fontFamily: "Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
-        fontSize: width < 150 ? "14px" : "17px",
-        backgroundColor: card.multiplier.multiplier > 1 ? "#57fff3" : "#ffd15e",
-        padding: { left: 7, right: 7, top: 3, bottom: 3 }
+        fontSize: compactCard ? "12px" : "17px",
+        backgroundColor: "#120d08",
+        padding: compactCard ? { left: 4, right: 4, top: 2, bottom: 2 } : { left: 7, right: 7, top: 3, bottom: 3 }
       })
       .setOrigin(0.5);
+    const badgeFrame = this.add.graphics();
+    const badgeWidth = multiplierBadge.displayWidth + (compactCard ? 4 : 7);
+    const badgeHeight = multiplierBadge.displayHeight + (compactCard ? 3 : 5);
+    badgeFrame.fillStyle(0x070605, 0.94);
+    badgeFrame.fillRoundedRect(badgeX - badgeWidth / 2, badgeY - badgeHeight / 2, badgeWidth, badgeHeight, compactCard ? 3 : 5);
+    badgeFrame.lineStyle(compactCard ? 1 : 2, badgeColor, 0.98);
+    badgeFrame.strokeRoundedRect(badgeX - badgeWidth / 2, badgeY - badgeHeight / 2, badgeWidth, badgeHeight, compactCard ? 3 : 5);
+    badgeFrame.lineStyle(1, palette.highlight, 0.52);
+    badgeFrame.lineBetween(badgeX - badgeWidth * 0.3, badgeY - badgeHeight / 2 + 2, badgeX + badgeWidth * 0.18, badgeY - badgeHeight / 2 + 2);
     const label = this.add
-      .text(0, -height * 0.25, item.name, {
+      .text(0, -height * (compactCard ? 0.2 : 0.25), item.name, {
         align: "center",
         color: palette.text,
         fontFamily: "Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
         fontSize: titleSize,
-        wordWrap: { width: width - 18 }
+        maxLines: 2,
+        wordWrap: { width: width - 18, useAdvancedWrap: true }
       })
       .setOrigin(0.5);
     const price = this.add
-      .text(0, height * 0.07, `${item.tier === "income" ? "入账 +" : "消费 "}${formatMoney(total)}`, {
+      .text(0, height * (compactCard ? 0.12 : 0.07), `${item.tier === "income" ? "入账 +" : "消费 "}${formatMoney(total)}`, {
         align: "center",
         color: item.tier === "income" ? "#80ffab" : "#ffd65a",
         fontFamily: "'Arial Narrow', 'PingFang SC', sans-serif",
@@ -1424,17 +1496,206 @@ export class CheckoutRushScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    shape.fillStyle(palette.fill, 0.94);
-    shape.lineStyle(2, palette.stroke, 0.76);
-    shape.fillRoundedRect(-width / 2, -height / 2, width, height, 8);
-    shape.strokeRoundedRect(-width / 2, -height / 2, width, height, 8);
-    shape.lineStyle(1, 0xffffff, 0.16);
-    shape.strokeRoundedRect(-width / 2 + 7, -height / 2 + 7, width - 14, height - 14, 6);
+    /*
+     * backplate 是卡片背后的实体底板。它比正面只多出 5 像素，并向下错开 5 像素，
+     * 因而会露出一圈暗金边和一个较厚的下沿，看起来像原画被装进了金属卡座，而不是一张
+     * 图片直接浮在黑色画布上。底板先加入 Container，之后才加入原画、文字和正面边框，
+     * 所以它不会覆盖任何信息；点击仍然使用 renderHand 计算的原卡片矩形，不会因为装饰
+     * 多出几像素就让相邻卡片的命中范围重叠。
+     */
+    const backplateLeft = -width / 2 - CARD_BACKPLATE_OVERHANG_PX;
+    const backplateTop = -height / 2 - CARD_BACKPLATE_OVERHANG_PX + CARD_BACKPLATE_DROP_PX;
+    const backplateWidth = width + CARD_BACKPLATE_OVERHANG_PX * 2;
+    const backplateHeight = height + CARD_BACKPLATE_OVERHANG_PX * 2;
+    backplate.fillStyle(0x020202, 0.82);
+    backplate.fillRoundedRect(backplateLeft - 3, backplateTop + 4, backplateWidth + 6, backplateHeight + 4, 10);
+    backplate.fillStyle(palette.shadow, 0.98);
+    backplate.fillRoundedRect(backplateLeft, backplateTop, backplateWidth, backplateHeight, 9);
+    backplate.lineStyle(2, palette.stroke, 0.66);
+    backplate.strokeRoundedRect(backplateLeft + 1, backplateTop + 1, backplateWidth - 2, backplateHeight - 2, 8);
+    backplate.lineStyle(1, palette.highlight, 0.42);
+    backplate.lineBetween(backplateLeft + 12, backplateTop + 3, backplateLeft + backplateWidth * 0.44, backplateTop + 3);
+    backplate.fillStyle(0x050403, 0.82);
+    backplate.fillRoundedRect(backplateLeft + 8, height / 2 + 1, backplateWidth - 16, 7, 3);
+    backplate.lineStyle(1, badgeColor, 0.46);
+    backplate.lineBetween(backplateLeft + 16, height / 2 + 3, backplateLeft + backplateWidth - 16, height / 2 + 3);
 
-    container.add([shape, multiplierBadge, label, price, meta]);
+    shape.fillStyle(palette.fill, 0.97);
+    shape.fillRoundedRect(-width / 2, -height / 2, width, height, 8);
+    shape.lineStyle(5, palette.shadow, 0.98);
+    shape.strokeRoundedRect(-width / 2, -height / 2, width, height, 8);
+    shape.lineStyle(2, palette.stroke, 0.92);
+    shape.strokeRoundedRect(-width / 2 + 3, -height / 2 + 3, width - 6, height - 6, 7);
+    shape.lineStyle(1, palette.highlight, 0.32);
+    shape.strokeRoundedRect(-width / 2 + 8, -height / 2 + 8, width - 16, height - 16, 5);
+
+    const artwork = this.createArtworkImage(item, width - ARTWORK_INSET_PX, height - ARTWORK_INSET_PX);
+    if (artwork) {
+      const finish = this.createArtworkFinish(width, height, item, card.multiplier.multiplier);
+      const plaqueTrim = this.add.graphics();
+
+      /*
+       * 原画本身已经承担“这是什么消费”的视觉说明，所以普通卡不再把分类和单价压在图片
+       * 底部。标题与本次金额分别收进左上、左下两个紧凑标签，中间区域完全留给原画；更完整
+       * 的分类、单价、倍率和 flavor 仍会在点击后的账单背面出现，不会丢失信息。
+       */
+      label
+        .setPosition(-width / 2 + 9, -height / 2 + 8)
+        .setOrigin(0, 0)
+        .setWordWrapWidth(width - (compactCard ? 42 : 82), true)
+        .setBackgroundColor(ARTWORK_LABEL_BACKGROUND)
+        .setPadding(compactCard ? 4 : 7, compactCard ? 2 : 3, compactCard ? 4 : 7, compactCard ? 2 : 3)
+        .setStroke("#050505", compactCard ? 2 : 3);
+      price
+        .setPosition(-width / 2 + 9, height / 2 - 8)
+        .setOrigin(0, 1)
+        .setBackgroundColor(ARTWORK_PRICE_BACKGROUND)
+        .setPadding(compactCard ? 4 : 7, compactCard ? 2 : 3, compactCard ? 4 : 7, compactCard ? 2 : 3)
+        .setStroke("#050505", compactCard ? 2 : 3);
+      plaqueTrim.lineStyle(compactCard ? 1 : 2, finish.accentColor, 0.94);
+      plaqueTrim.lineBetween(
+        -width / 2 + 9,
+        label.y + label.displayHeight + 2,
+        -width / 2 + 9 + Math.min(label.displayWidth, width * 0.58),
+        label.y + label.displayHeight + 2
+      );
+      plaqueTrim.lineStyle(1, palette.highlight, 0.7);
+      plaqueTrim.lineBetween(
+        -width / 2 + 9,
+        price.y - price.displayHeight - 2,
+        -width / 2 + 9 + Math.min(price.displayWidth, width * 0.64),
+        price.y - price.displayHeight - 2
+      );
+      meta.setVisible(false);
+      container.add([backplate, shape, finish.aura, artwork, finish.light, finish.frame, plaqueTrim]);
+    } else {
+      container.add([backplate, shape]);
+    }
+    container.add([badgeFrame, multiplierBadge, label, price, meta]);
     container.setSize(width, height);
 
     return container;
+  }
+
+  private cardArtworkState(item: Item): "loaded" | "fallback" | "unmapped" {
+    const asset = findItemArtwork(item.id);
+    if (!asset) {
+      return "unmapped";
+    }
+
+    return this.textures.exists(asset.textureKey) ? "loaded" : "fallback";
+  }
+
+  private createArtworkImage(item: Item, width: number, height: number): Phaser.GameObjects.Image | null {
+    const asset = findItemArtwork(item.id);
+    if (!asset || !this.textures.exists(asset.textureKey)) {
+      return null;
+    }
+
+    const image = this.add.image(0, 0, asset.textureKey).setName(asset.textureKey);
+    const sourceWidth = image.width;
+    const sourceHeight = image.height;
+    const sourceRatio = sourceWidth / sourceHeight;
+    const targetRatio = width / height;
+    let cropX = 0;
+    let cropY = 0;
+    let cropWidth = sourceWidth;
+    let cropHeight = sourceHeight;
+
+    /*
+     * 普通货架卡和放大翻牌的宽高比例不同。如果直接 setDisplaySize，人物、手机和票据会被
+     * 横向或纵向拉伸。这里先从原图中心裁出与目标区域相同的比例，再等比缩放到目标尺寸。
+     * 两个卡面会各自创建一个 Image 显示对象，但它们使用同一个 textureKey，因此浏览器只
+     * 下载、解码并上传一份纹理；“共用原画”不会变成两套资源或两次网络请求。
+     */
+    if (sourceRatio > targetRatio) {
+      cropWidth = sourceHeight * targetRatio;
+      cropX = (sourceWidth - cropWidth) / 2;
+    } else if (sourceRatio < targetRatio) {
+      cropHeight = sourceWidth / targetRatio;
+      cropY = (sourceHeight - cropHeight) / 2;
+    }
+
+    image.setCrop(cropX, cropY, cropWidth, cropHeight);
+    image.setScale(width / cropWidth, height / cropHeight);
+    return image;
+  }
+
+  private artworkAccentColor(item: Item, multiplier: number): number {
+    if (item.tier === "income") {
+      return 0x5fff9c;
+    }
+    if (multiplier > 1) {
+      return 0x57fff3;
+    }
+    return TIER_COLORS[item.tier].stroke;
+  }
+
+  private createArtworkFinish(
+    width: number,
+    height: number,
+    item: Item,
+    multiplier: number
+  ): {
+    aura: Phaser.GameObjects.Graphics;
+    light: Phaser.GameObjects.Graphics;
+    frame: Phaser.GameObjects.Graphics;
+    accentColor: number;
+  } {
+    const tierPalette = TIER_COLORS[item.tier];
+    const accentColor = this.artworkAccentColor(item, multiplier);
+    const highlightColor = multiplier > 1 ? 0xe5fffc : tierPalette.highlight;
+    const glowColor = multiplier > 1 ? 0x57fff3 : tierPalette.glow;
+    const aura = this.add.graphics().setBlendMode(Phaser.BlendModes.ADD);
+    const light = this.add.graphics().setBlendMode(Phaser.BlendModes.ADD);
+    const frame = this.add.graphics();
+    const inset = ARTWORK_INSET_PX / 2;
+    const left = -width / 2 + 1;
+    const top = -height / 2 + 1;
+    const right = width / 2 - 1;
+    const bottom = height / 2 - 1;
+    const cornerLength = Phaser.Math.Clamp(width * 0.09, 11, 26);
+
+    /*
+     * 这三层只负责给已有原画增加卡牌质感，不修改图片像素。aura 在图片后面画两圈低透明
+     * 辉光；light 在图片上方从左上向右下叠一层很淡的暖色高光；frame 最后重新画清晰边框，
+     * 避免发光把卡片轮廓冲散。它们都是 Phaser Graphics，因此无图回退、金额算法和命中矩形
+     * 不受影响，也不需要为每种商品再制作一张发光版本。
+     */
+    aura.lineStyle(20, glowColor, 0.09);
+    aura.strokeRoundedRect(-width / 2 + inset, -height / 2 + inset, width - ARTWORK_INSET_PX, height - ARTWORK_INSET_PX, 9);
+    aura.lineStyle(9, glowColor, 0.24);
+    aura.strokeRoundedRect(-width / 2 + inset, -height / 2 + inset, width - ARTWORK_INSET_PX, height - ARTWORK_INSET_PX, 8);
+
+    light.fillGradientStyle(highlightColor, accentColor, highlightColor, accentColor, 0.18, 0.055, 0, 0);
+    light.fillRect(-width / 2 + inset, -height / 2 + inset, width - ARTWORK_INSET_PX, height - ARTWORK_INSET_PX);
+    light.lineStyle(2, highlightColor, 0.78);
+    light.lineBetween(-width / 2 + 12, -height / 2 + 7, width * 0.16, -height / 2 + 7);
+
+    frame.lineStyle(7, tierPalette.shadow, 0.98);
+    frame.strokeRoundedRect(left, top, width - 2, height - 2, 8);
+    frame.lineStyle(4, accentColor, 0.98);
+    frame.strokeRoundedRect(left + 2, top + 2, width - 6, height - 6, 7);
+    frame.lineStyle(1, highlightColor, 0.92);
+    frame.strokeRoundedRect(left + 6, top + 6, width - 14, height - 14, 5);
+    frame.lineStyle(2, accentColor, 0.58);
+    frame.strokeRoundedRect(left + 10, top + 10, width - 22, height - 22, 4);
+
+    /*
+     * 四角短线模拟珠宝盒和高级信用卡的金属包角。它们只画在线框内部，不覆盖标题、金额
+     * 或原画主体；短线长度会随卡片宽度限制在 11 到 26 像素，移动端窄卡不会被角饰挤满。
+     */
+    frame.lineStyle(2, highlightColor, 0.9);
+    frame.lineBetween(left + 8, top + 8, left + 8 + cornerLength, top + 8);
+    frame.lineBetween(left + 8, top + 8, left + 8, top + 8 + cornerLength * 0.65);
+    frame.lineBetween(right - 8 - cornerLength, top + 8, right - 8, top + 8);
+    frame.lineBetween(right - 8, top + 8, right - 8, top + 8 + cornerLength * 0.65);
+    frame.lineBetween(left + 8, bottom - 8, left + 8 + cornerLength, bottom - 8);
+    frame.lineBetween(left + 8, bottom - 8 - cornerLength * 0.65, left + 8, bottom - 8);
+    frame.lineBetween(right - 8 - cornerLength, bottom - 8, right - 8, bottom - 8);
+    frame.lineBetween(right - 8, bottom - 8 - cornerLength * 0.65, right - 8, bottom - 8);
+
+    return { aura, light, frame, accentColor };
   }
 
   private animateCardIn(container: Phaser.GameObjects.Container, index: number): void {
@@ -1477,15 +1738,19 @@ export class CheckoutRushScene extends Phaser.Scene {
     const back = this.add.container(0, 0).setVisible(false);
     const frontShape = this.add.graphics();
     const backShape = this.add.graphics();
+    const backOrnament = this.add.graphics();
     const frontPalette = TIER_COLORS[item.tier];
+    const backAccent = item.tier === "income" ? 0x55f39a : frontPalette.stroke;
     const detailExitDelayMs = this.cardDetailExitDelayMs();
 
     frontShape.fillStyle(frontPalette.fill, 0.98);
-    frontShape.lineStyle(2, frontPalette.stroke, 0.9);
     frontShape.fillRoundedRect(-width / 2, -height / 2, width, height, 10);
+    frontShape.lineStyle(6, frontPalette.shadow, 0.98);
     frontShape.strokeRoundedRect(-width / 2, -height / 2, width, height, 10);
-    frontShape.lineStyle(1, 0xffffff, 0.18);
-    frontShape.strokeRoundedRect(-width / 2 + 10, -height / 2 + 10, width - 20, height - 20, 8);
+    frontShape.lineStyle(3, frontPalette.stroke, 0.94);
+    frontShape.strokeRoundedRect(-width / 2 + 4, -height / 2 + 4, width - 8, height - 8, 8);
+    frontShape.lineStyle(1, frontPalette.highlight, 0.48);
+    frontShape.strokeRoundedRect(-width / 2 + 10, -height / 2 + 10, width - 20, height - 20, 6);
 
     const frontTitle = this.add
       .text(0, -height * 0.2, item.name, {
@@ -1493,7 +1758,8 @@ export class CheckoutRushScene extends Phaser.Scene {
         color: frontPalette.text,
         fontFamily: "Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
         fontSize: "30px",
-        wordWrap: { width: width - 44 }
+        maxLines: 2,
+        wordWrap: { width: width - 44, useAdvancedWrap: true }
       })
       .setOrigin(0.5);
     const frontPrice = this.add
@@ -1516,21 +1782,34 @@ export class CheckoutRushScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    backShape.fillStyle(0x111316, 0.98);
-    backShape.lineStyle(2, item.tier === "income" ? 0x5fff9c : 0xffd15e, 0.86);
+    backShape.fillStyle(0x0b0908, 0.99);
     backShape.fillRoundedRect(-width / 2, -height / 2, width, height, 10);
+    backShape.lineStyle(7, frontPalette.shadow, 0.98);
     backShape.strokeRoundedRect(-width / 2, -height / 2, width, height, 10);
+    backShape.lineStyle(3, backAccent, 0.98);
+    backShape.strokeRoundedRect(-width / 2 + 4, -height / 2 + 4, width - 8, height - 8, 8);
+    backShape.lineStyle(1, frontPalette.highlight, 0.68);
+    backShape.strokeRoundedRect(-width / 2 + 10, -height / 2 + 10, width - 20, height - 20, 6);
+
+    backOrnament.lineStyle(1, backAccent, 0.52);
+    backOrnament.lineBetween(-width * 0.34, -height * 0.12, width * 0.34, -height * 0.12);
+    backOrnament.lineBetween(-width * 0.24, height * 0.27, width * 0.24, height * 0.27);
+    backOrnament.lineStyle(2, frontPalette.highlight, 0.72);
+    backOrnament.lineBetween(-width / 2 + 16, -height / 2 + 16, -width / 2 + 54, -height / 2 + 16);
+    backOrnament.lineBetween(width / 2 - 54, -height / 2 + 16, width / 2 - 16, -height / 2 + 16);
+    backOrnament.lineBetween(-width / 2 + 16, height / 2 - 16, -width / 2 + 54, height / 2 - 16);
+    backOrnament.lineBetween(width / 2 - 54, height / 2 - 16, width / 2 - 16, height / 2 - 16);
 
     const backTitle = this.add
       .text(0, -height * 0.28, "账单详情", {
         align: "center",
-        color: "#57fff3",
+        color: item.tier === "income" ? "#8affb5" : "#ffe28a",
         fontFamily: "Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
         fontSize: "28px"
       })
       .setOrigin(0.5);
     const backDetail = this.add
-      .text(0, height * 0.02, `${item.flavor}\n单价 ${formatMoney(item.price)} · 倍率 ${card.multiplier.label}\n本次${item.tier === "income" ? "入账" : "扣款"} ${formatMoney(total)}`, {
+      .text(0, height * 0.02, `${item.flavor}\n${item.category} · 单价 ${formatMoney(item.price)} · 倍率 ${card.multiplier.label}\n本次${item.tier === "income" ? "入账" : "扣款"} ${formatMoney(total)}`, {
         align: "center",
         color: "#fff4dc",
         fontFamily: "'PingFang SC', 'Microsoft YaHei', sans-serif",
@@ -1541,12 +1820,33 @@ export class CheckoutRushScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     /*
-     * 这层是“未来美术资源”的接口形状：front 是卡面，back 是翻开后的详情面。
-     * 现在用 Phaser 图形和文字临时画出来；后续每张商品卡有两张美术图时，可以把 front
-     * 和 back 里的 Graphics/Text 替换成图片，支付、命中、结算逻辑都不需要改。
+     * front 是玩家点击后先看到的放大正面，它通过 createArtworkImage 与普通货架卡共用
+     * 同一个 textureKey；back 仍然是程序绘制的账单详情。以后美术如果为每张商品再提供
+     * 一张详情图，只需要替换 back 的背景，不能另建一套正面 id 映射。这样普通卡、放大
+     * 正面和未来详情面的职责保持清楚，支付、命中、结算逻辑也不需要跟着图片格式变化。
      */
-    front.add([frontShape, frontTitle, frontPrice, frontMeta]);
-    back.add([backShape, backTitle, backDetail]);
+    const frontArtwork = this.createArtworkImage(item, width - ARTWORK_INSET_PX, height - ARTWORK_INSET_PX);
+    if (frontArtwork) {
+      const finish = this.createArtworkFinish(width, height, item, card.multiplier.multiplier);
+      frontTitle
+        .setPosition(-width / 2 + 16, -height / 2 + 14)
+        .setOrigin(0, 0)
+        .setWordWrapWidth(width - 118, true)
+        .setBackgroundColor(ARTWORK_LABEL_BACKGROUND)
+        .setPadding(9, 5, 9, 5)
+        .setStroke("#050505", 4);
+      frontPrice
+        .setPosition(-width / 2 + 16, height / 2 - 14)
+        .setOrigin(0, 1)
+        .setBackgroundColor(ARTWORK_PRICE_BACKGROUND)
+        .setPadding(10, 5, 10, 5);
+      frontMeta.setVisible(false);
+      front.add([frontShape, finish.aura, frontArtwork, finish.light, finish.frame]);
+    } else {
+      front.add(frontShape);
+    }
+    front.add([frontTitle, frontPrice, frontMeta]);
+    back.add([backShape, backOrnament, backTitle, backDetail]);
     detailCard.add([front, back]);
     overlay.add([scrim, detailCard]);
     this.cardDetailOverlay = overlay;
@@ -2498,23 +2798,52 @@ export class CheckoutRushScene extends Phaser.Scene {
   private redrawArena(): void {
     const width = this.scale.width;
     const height = this.scale.height;
+    const outerInset = 16;
+    const innerInset = 22;
+    const cornerLength = Phaser.Math.Clamp(width * 0.055, 34, 72);
 
     this.arenaGraphics.clear();
-    this.arenaGraphics.fillStyle(0x070707, 1);
+    this.arenaGraphics.fillGradientStyle(0x160d0b, 0x070707, 0x071316, 0x050505, 1);
     this.arenaGraphics.fillRect(0, 0, width, height);
-    this.arenaGraphics.lineStyle(2, 0xffc84a, 0.18);
-    this.arenaGraphics.strokeRect(16, 16, width - 32, height - 32);
-    this.arenaGraphics.lineStyle(1, 0x5ffff0, 0.12);
+    this.arenaGraphics.fillStyle(0x8b1724, 0.035);
+    this.arenaGraphics.fillRect(0, 0, width * 0.34, height);
+    this.arenaGraphics.fillStyle(0x0b7e78, 0.03);
+    this.arenaGraphics.fillRect(width * 0.66, 0, width * 0.34, height);
+
+    this.arenaGraphics.lineStyle(7, 0x3b2108, 0.9);
+    this.arenaGraphics.strokeRoundedRect(outerInset, outerInset, width - outerInset * 2, height - outerInset * 2, 8);
+    this.arenaGraphics.lineStyle(2, 0xe7b64e, 0.68);
+    this.arenaGraphics.strokeRoundedRect(outerInset + 2, outerInset + 2, width - outerInset * 2 - 4, height - outerInset * 2 - 4, 7);
+    this.arenaGraphics.lineStyle(1, 0xffedb0, 0.28);
+    this.arenaGraphics.strokeRoundedRect(innerInset, innerInset, width - innerInset * 2, height - innerInset * 2, 5);
+
+    this.arenaGraphics.lineStyle(2, 0xffe19a, 0.72);
+    this.arenaGraphics.lineBetween(innerInset, innerInset, innerInset + cornerLength, innerInset);
+    this.arenaGraphics.lineBetween(innerInset, innerInset, innerInset, innerInset + cornerLength * 0.58);
+    this.arenaGraphics.lineBetween(width - innerInset - cornerLength, innerInset, width - innerInset, innerInset);
+    this.arenaGraphics.lineBetween(width - innerInset, innerInset, width - innerInset, innerInset + cornerLength * 0.58);
+    this.arenaGraphics.lineBetween(innerInset, height - innerInset, innerInset + cornerLength, height - innerInset);
+    this.arenaGraphics.lineBetween(innerInset, height - innerInset - cornerLength * 0.58, innerInset, height - innerInset);
+    this.arenaGraphics.lineBetween(width - innerInset - cornerLength, height - innerInset, width - innerInset, height - innerInset);
+    this.arenaGraphics.lineBetween(width - innerInset, height - innerInset - cornerLength * 0.58, width - innerInset, height - innerInset);
+
     for (let shelf = 1; shelf <= 3; shelf += 1) {
       const y = height * (0.1 + shelf * 0.18);
-      this.arenaGraphics.lineBetween(24, y, width - 24, y);
+      this.arenaGraphics.lineStyle(5, 0x231406, 0.52);
+      this.arenaGraphics.lineBetween(28, y + 2, width - 28, y + 2);
+      this.arenaGraphics.lineStyle(1, shelf === 2 ? 0x6fffe8 : 0xd8a845, 0.22);
+      this.arenaGraphics.lineBetween(30, y, width - 30, y);
     }
-    this.arenaGraphics.fillStyle(0xffd15e, 0.08);
+    this.arenaGraphics.fillStyle(0x160f08, 0.86);
     this.arenaGraphics.fillRoundedRect(width * 0.36, height * 0.77, width * 0.28, height * 0.13, 10);
-    this.arenaGraphics.lineStyle(2, 0xffd15e, 0.26);
+    this.arenaGraphics.lineStyle(5, 0x422609, 0.82);
     this.arenaGraphics.strokeRoundedRect(width * 0.36, height * 0.77, width * 0.28, height * 0.13, 10);
-    this.arenaGraphics.fillStyle(0x57fff3, 0.18);
+    this.arenaGraphics.lineStyle(2, 0xe8b64c, 0.48);
+    this.arenaGraphics.strokeRoundedRect(width * 0.36 + 4, height * 0.77 + 4, width * 0.28 - 8, height * 0.13 - 8, 7);
+    this.arenaGraphics.fillStyle(0x57fff3, 0.22);
     this.arenaGraphics.fillRect(width * 0.39, height * 0.83, width * 0.22, 5);
+    this.arenaGraphics.fillStyle(0xffffff, 0.28);
+    this.arenaGraphics.fillRect(width * 0.39, height * 0.83, width * 0.07, 1);
   }
 
   private renderHandTimer(now: number): void {

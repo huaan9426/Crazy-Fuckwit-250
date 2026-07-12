@@ -235,29 +235,33 @@ ON CONFLICT (id) DO UPDATE SET
   active = true;
 
 WITH item_templates (
-  template_id, base_name, category, scene_id, base_price, price_step, min_balance, tags, flavor, sort_order
+  template_id, item_names, category, scene_id, base_price, price_step, min_balance, tags, flavor, sort_order
 ) AS (
+  -- item_names 是 PostgreSQL 的文本数组。数组第 1 到第 11 项与下面 variants 的
+  -- variant_index 一一对应，所以显示名称可以是具体消费项目，而原有 id、价格公式、
+  -- 权重和限购规则继续保持不变。这样已经保存或引用 auto-card-* id 的代码不会失效，
+  -- 前端和美术又不必再面对“基础款、周末款、离谱款”这种无法形成独立画面的名称。
   VALUES
-  ('food', '临时餐饮账单', '日常小额', 'daily-loop', 96, 42, 0, '["daily","food"]'::jsonb, '嘴上说随便吃点，账单自己长大。', 1000),
-  ('drink', '饮料咖啡补给', '日常小额', 'daily-loop', 68, 38, 0, '["daily","drink","social"]'::jsonb, '饮品很快喝完，流水留下来了。', 1100),
-  ('traffic', '出行临时加价', '交通', 'car-owner-day', 180, 210, 0, '["traffic","rush"]'::jsonb, '路程不远，费用会绕路。', 1200),
-  ('platform', '平台规则扣款', '平台规则', 'late-night-cart', 128, 96, 0, '["platform","subscription","fee"]'::jsonb, '规则写得很细，玩家读得很快。', 1300),
-  ('home', '家务维修补单', '灾难维修', 'repair-week', 520, 360, 0, '["home","repair","damage"]'::jsonb, '不是大事故，但每次都要钱。', 1400),
-  ('digital', '数码设备意外', '数码意外', 'repair-week', 880, 520, 0, '["digital","repair","damage"]'::jsonb, '屏幕亮着，钱包暗了。', 1500),
-  ('social', '社交人情加码', '社交压力', 'social-pressure', 360, 330, 0, '["social","gift","face"]'::jsonb, '面子没有标价，但这里有。', 1600),
-  ('child', '带娃临时开销', '亲子教育', 'parenting-week', 220, 420, 0, '["child","education","family"]'::jsonb, '小朋友开心了，大人沉默了。', 1700),
-  ('campus', '学习考试费用', '教育考试', 'campus-wallet', 160, 260, 0, '["education","admin"]'::jsonb, '学习使人进步，也使余额移动。', 1800),
-  ('career', '职场形象成本', '职场晋升', 'office-promotion', 680, 620, 1000, '["career","social","face"]'::jsonb, '升职还没到，成本先到。', 1900),
-  ('medical', '健康检查加项', '健康', 'midlife-checkup', 900, 880, 1000, '["medical","health","insurance"]'::jsonb, '不写医学建议，只记录费用变化。', 2000),
-  ('pet', '宠物照护补项', '宠物', 'pet-er', 760, 740, 1000, '["pet","medical"]'::jsonb, '小动物不会讲价。', 2100),
-  ('admin', '行政窗口费用', '法律行政', 'admin-window', 240, 380, 0, '["admin","legal","fee"]'::jsonb, '窗口不大，费用不少。', 2200),
-  ('travel', '旅行意外消费', '旅行', 'travel-chaos', 980, 1260, 2000, '["travel","hotel","flight"]'::jsonb, '行程变化永远比计划贵。', 2300),
-  ('renovation', '装修现场增项', '大件现实', 'home-renovation', 3600, 4200, 8000, '["renovation","home","rework"]'::jsonb, '每一项都说是最后一次。', 2400),
-  ('wedding', '婚礼季账单', '社交压力', 'wedding-season', 1200, 1800, 2000, '["wedding","social","gift"]'::jsonb, '祝福很真，金额也真。', 2500),
-  ('luxury', '高端体验尾款', '富人体验', 'luxury-afterparty', 8800, 9600, 20000, '["luxury","service-fee"]'::jsonb, '入场费只是门口。', 2600),
-  ('auction', '拍卖周边成本', '高端误操作', 'auction-night', 6800, 8800, 20000, '["auction","luxury","mistap"]'::jsonb, '锤子没落下时也会收费。', 2700),
-  ('car', '车主隐形成本', '交通', 'car-owner-day', 460, 760, 0, '["car","traffic","repair"]'::jsonb, '车在路上，钱在路上。', 2800),
-  ('income', '反向到账', '反向进账', 'lucky-counter', 300, 820, 0, '["income","refund","compensation"]'::jsonb, '这笔钱回来得很不是时候。', 2900)
+  ('food', ARRAY['便利店三明治','深夜牛肉面','双人炸鸡套餐','周末自助早餐','火锅四人餐','商务午餐包间','家庭海鲜聚餐','日料双人套餐','私厨上门晚餐','十人庆功宴','酒店宴会包桌'], '日常小额', 'daily-loop', 96, 42, 0, '["daily","food"]'::jsonb, '嘴上说随便吃点，账单自己长大。', 1000),
+  ('drink', ARRAY['瓶装气泡水','大杯手冲咖啡','双人奶茶外送','办公室咖啡六杯','周末精酿拼盘','商务茶歇套餐','全组下午茶','聚会香槟套餐','公司咖啡月卡','活动饮品包场','宴会酒水押金'], '日常小额', 'daily-loop', 68, 38, 0, '["daily","drink","social"]'::jsonb, '饮品很快喝完，流水留下来了。', 1100),
+  ('traffic', ARRAY['网约车取消费','机场高速过路费','夜间代驾起步费','高峰打车加价','跨城顺风车补差','机场接送包车','临时商务包车','节假日租车三天','七座车异地还车','婚礼车队租赁','豪华房车跨省租赁'], '交通', 'car-owner-day', 180, 210, 0, '["traffic","rush"]'::jsonb, '路程不远，费用会绕路。', 1200),
+  ('platform', ARRAY['共享充电宝封顶费','视频会员自动续费','外卖会员年费','网盘扩容年费','软件专业版续费','课程平台服务费','直播误点礼物','游戏账号申诉费','云服务器欠费补缴','企业软件席位续费','平台店铺保证金'], '平台规则', 'late-night-cart', 128, 96, 0, '["platform","subscription","fee"]'::jsonb, '规则写得很细，玩家读得很快。', 1300),
+  ('home', ARRAY['水龙头上门更换','下水道紧急疏通','燃气灶点火维修','卧室空调移机','热水器整机更换','全屋深度保洁','阳台漏水返修','木地板泡水修复','全屋管线重排','屋顶渗水翻修','老房电路改造'], '灾难维修', 'repair-week', 520, 360, 0, '["home","repair","damage"]'::jsonb, '不是大事故，但每次都要钱。', 1400),
+  ('digital', ARRAY['蓝牙耳机丢失补买','手机电池更换','平板屏幕维修','游戏机主板维修','相机机身进水','笔记本屏幕总成','台式机显卡烧毁','工作站硬盘恢复','摄影套机跌落','服务器阵列恢复','直播设备整套重买'], '数码意外', 'repair-week', 880, 520, 0, '["digital","repair","damage"]'::jsonb, '屏幕亮着，钱包暗了。', 1500),
+  ('social', ARRAY['同事离职礼物','朋友乔迁礼盒','生日聚餐请客','探亲伴手礼','老同学婚礼红包','部门庆功请客','长辈寿宴礼金','商务答谢礼篮','亲友旅行团费代付','婚宴临时加桌','家族庆典全场买单'], '社交压力', 'social-pressure', 360, 330, 0, '["social","gift","face"]'::jsonb, '面子没有标价，但这里有。', 1600),
+  ('child', ARRAY['幼儿园手工作业材料','儿童乐园临时票','少儿体检套餐','周末绘画体验课','儿童安全座椅','暑期游泳班','牙齿矫正定金','双语夏令营','私立学校校车费','国际课程学期费','海外研学团费'], '亲子教育', 'parenting-week', 220, 420, 0, '["child","education","family"]'::jsonb, '小朋友开心了，大人沉默了。', 1700),
+  ('campus', ARRAY['校园打印装订','计算机等级报名','语言考试报名费','专业教材整套','异地考试住宿','考前冲刺课程','资格证培训班','研究生复试辅导','留学语言强化课','艺考集训住宿','海外考试服务包'], '教育考试', 'campus-wallet', 160, 260, 0, '["education","admin"]'::jsonb, '学习使人进步，也使余额移动。', 1800),
+  ('career', ARRAY['面试西装租赁','职业证件照套餐','商务皮鞋换新','行业峰会门票','商务形象顾问','外地面试差旅','高管课程报名','商务社群年费','猎头服务预付款','海外会议参会费','高管研修班学费'], '职场晋升', 'office-promotion', 680, 620, 1000, '["career","social","face"]'::jsonb, '升职还没到，成本先到。', 1900),
+  ('medical', ARRAY['门诊化验复查','过敏原筛查','胃镜麻醉套餐','核磁共振加项','急诊留观押金','住院检查预缴','牙科种植定金','年度高端体检','家庭健康管理年费','海外门诊预付款','私立医院住院押金'], '健康', 'midlife-checkup', 900, 880, 1000, '["medical","health","insurance"]'::jsonb, '不写医学建议，只记录费用变化。', 2000),
+  ('pet', ARRAY['宠物疫苗补针','宠物夜间挂号','宠物牙齿清洁','宠物皮肤化验','宠物住院押金','宠物进口药疗程','宠物骨折固定','宠物核磁检查','宠物心脏手术定金','宠物重症监护','宠物跨城转院'], '宠物', 'pet-er', 760, 740, 1000, '["pet","medical"]'::jsonb, '小动物不会讲价。', 2100),
+  ('admin', ARRAY['证件照加洗','公证材料翻译','营业执照代办','商标注册服务费','签证材料加急','房产过户测绘费','合同律师审核','公司变更代理费','跨境认证服务费','行政诉讼律师费','企业许可保证金'], '法律行政', 'admin-window', 240, 380, 0, '["admin","legal","fee"]'::jsonb, '窗口不大，费用不少。', 2200),
+  ('travel', ARRAY['行李超重补费','机场酒店一晚','返程机票改签','海外租车押金','行李丢失补购','节假日酒店重订','邮轮舱位升级','商务舱临时升舱','全家返程机票','极地邮轮尾款','海外别墅取消费'], '旅行', 'travel-chaos', 980, 1260, 2000, '["travel","hotel","flight"]'::jsonb, '行程变化永远比计划贵。', 2300),
+  ('renovation', ARRAY['设计图修改费','厨房水电增项','墙面基层返工','全屋美缝追加','卫生间防水重做','定制柜尺寸返工','地暖管线重铺','全屋门窗更换','别墅外墙返修','老房结构加固','整屋水电返工'], '大件现实', 'home-renovation', 3600, 4200, 8000, '["renovation","home","rework"]'::jsonb, '每一项都说是最后一次。', 2400),
+  ('wedding', ARRAY['婚礼请柬加印','伴手礼临时补货','婚车超时费用','摄影加机位','宴会厅灯光升级','婚纱礼服尾款','酒店婚房连订','婚宴桌数追加','户外婚礼雨棚','婚庆团队改期费','海岛婚礼取消费'], '社交压力', 'wedding-season', 1200, 1800, 2000, '["wedding","social","gift"]'::jsonb, '祝福很真，金额也真。', 2500),
+  ('luxury', ARRAY['私人会所年费','高端餐厅包厢低消','私人游艇清洁费','马术俱乐部入会费','私人飞机候机费','度假别墅整月租金','海岛会所终身席位','超跑赛道事故押金','私人游艇损坏赔补','私人飞机改航费','海外庄园宴会尾款'], '富人体验', 'luxury-afterparty', 8800, 9600, 20000, '["luxury","service-fee"]'::jsonb, '入场费只是门口。', 2600),
+  ('auction', ARRAY['拍卖图录服务费','古董鉴定复检费','艺术品运输保险','拍卖保证金补缴','古董修复预付款','拍品仓储逾期费','艺术品进口税费','拍卖佣金尾款','误拍雕塑运输费','油画保税仓费用','拍品撤回违约金'], '高端误操作', 'auction-night', 6800, 8800, 20000, '["auction","luxury","mistap"]'::jsonb, '锤子没落下时也会收费。', 2700),
+  ('car', ARRAY['违停拖车保管费','轮胎补气救援','前挡玻璃修复','电瓶道路救援','四条轮胎更换','变速箱深度保养','车身钣金喷漆','发动机漏油维修','新能源电控维修','涉水发动机维修','动力电池更换'], '交通', 'car-owner-day', 460, 760, 0, '["car","traffic","repair"]'::jsonb, '车在路上，钱在路上。', 2800),
+  ('income', ARRAY['外卖退款到账','话费重复扣款退回','航班延误赔付','租房押金退回','二手设备卖出','项目奖金到账','车辆保险赔付','酒店取消退款','年终奖补发','税款退回到账','房屋退租押金到账'], '反向进账', 'lucky-counter', 300, 820, 0, '["income","refund","compensation"]'::jsonb, '这笔钱回来得很不是时候。', 2900)
 ),
 variants (variant_index, variant_name, price_multiplier, weight_delta) AS (
   VALUES
@@ -276,7 +280,7 @@ variants (variant_index, variant_name, price_multiplier, weight_delta) AS (
 expanded AS (
   SELECT
     'auto-card-' || template_id || '-' || variant_index AS id,
-    base_name || '·' || variant_name AS name,
+    item_names[variant_index] AS name,
     category,
     scene_id,
     GREATEST(1, ROUND((base_price + price_step * (variant_index - 1)) * price_multiplier))::BIGINT AS price,

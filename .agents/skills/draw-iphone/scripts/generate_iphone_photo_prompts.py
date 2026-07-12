@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +28,7 @@ FIELDNAMES = [
     "schema_version",
     "style_signature",
     "index",
+    "item_id",
     "item_name",
     "subject_kind",
     "subject",
@@ -49,7 +52,6 @@ FIELDNAMES = [
     "prompt",
     "qa_status",
 ]
-IMAGE_GEN_SCRIPT = Path("C:/Users/admin/.codex/skills/.system/imagegen/scripts/image_gen.py")
 DEFAULT_BASE_URL = "https://xaapi.ai/v1"
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_IMAGE_SIZE = "2048x944"
@@ -60,6 +62,7 @@ FRONTEND_CARD_HEIGHT = 156
 DEFAULT_ASSET_WIDTH = 2040
 DEFAULT_ASSET_HEIGHT = 936
 DEFAULT_ASSET_SIZE = f"{DEFAULT_ASSET_WIDTH}x{DEFAULT_ASSET_HEIGHT}"
+ITEM_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 VISUAL_GRADES = ("auto", "bronze", "silver", "gold", "diamond", "legendary")
 STYLE_PROFILE_ORDER = (
     "fauvist-paint",
@@ -219,11 +222,19 @@ STYLE_POOLS_BY_CATEGORY = {
 DETAILS = {
     "包子": "fresh steamed bun on plain white breakfast paper, close enough to show soft dough texture and tiny moisture",
     "咖啡": "plain takeaway coffee cup on a real table, close enough to show lid texture and small condensation marks",
+    "办公室咖啡轮值": "plain takeaway coffee cup in a cardboard sleeve on an office pantry counter, lid texture and small condensation marks clearly visible, no coffee pot or thermal carafe",
     "泡面": "opened instant noodle cup on a kitchen counter, close enough to show noodles and broth surface",
     "打车票": "ride receipt on a car seat, private details blurred by shallow focus",
     "演唱会票": "concert ticket on a plain desk, no real artist name or readable barcode",
     "手机碎屏换新": "cracked smartphone on a real desk, sharp focus on fractured glass",
     "宠物急诊账单": "veterinary emergency deposit receipt on a clinic counter, private information not readable",
+    "宠物急诊押金": "veterinary emergency deposit slip on a clinic counter, with one small abstract paw-print clinic mark and softly blurred treatment-room colors behind it, no readable private information",
+    "酒店超售赔付": "one hotel overbooking compensation payment slip on a bright reception counter, with an abstract credit mark and a softly blurred room-key tray as restrained context, all printed details and personal information unreadable, no currency symbol or official emblem",
+    "柜台小额手续费": "one small counter-service fee slip on a bright service desk, with a plain number token and payment tray as restrained context, all printed details abstract and unreadable, no currency symbol, government emblem, bank logo, or personal information",
+    "跨城打车溢价": "one ride payment receipt representing a cross-city surge fare, placed diagonally on a bright car console with one abstract route line and blurred city lights as restrained context, no readable locations, amount, license plate, company logo, or personal information",
+    "急诊留观押金": "one emergency observation deposit slip on a bright hospital admissions counter, with a plain patient wristband and softly blurred treatment curtain as restrained context, all printed details abstract and unreadable, no amount, hospital logo, official emblem, or personal information",
+    "外卖退款到账": "one smartphone showing an abstract incoming refund confirmation for a food-delivery order, placed on a bright kitchen counter with one softly blurred delivery bag as restrained context, use only simple arrows and color blocks with no readable interface text, amount, app logo, or personal information",
+    "儿童安全座椅": "one modern child safety car seat as the only product hero, shown in a dynamic three-quarter view with the complete shell, headrest, side-impact wings, five-point harness, buckle, padding, and base clearly visible, bright commercial rim light, no child, adult, vehicle cabin, packaging, logo, certification mark, or readable label",
     "光明冰砖": "classic rectangular ice cream brick partly unwrapped on plain wrapper paper, cold surface texture visible",
     "国际饭店蝴蝶酥": "butterfly-shaped puff pastry on plain bakery paper, flaky layers sharply visible",
     "摩登红人雪花膏": "small vintage-style face cream jar on a bathroom counter, cream texture and jar surface visible",
@@ -235,6 +246,12 @@ DETAILS = {
     "乔家栅条头糕": "strip-shaped rice cake on plain parchment paper, soft sticky texture visible",
     "蟹壳黄": "sesame-coated baked pastry on plain paper, crisp golden crust visible",
     "老凤祥金饰": "gold jewelry piece on a plain counter, metal texture and reflection visible, no luxury display staging",
+    "幼儿园手工作业材料": "one complete children's craft-material kit as the only product hero, with colored paper, blunt safety scissors, glue stick, soft pom-poms, and wooden craft sticks arranged as one compact usable set, every component fully visible, no finished school project, child, hand, readable packaging, school logo, or duplicate kit",
+    "专业教材整套": "one complete coordinated set of professional textbooks as the only product hero, five sturdy volumes arranged in a dynamic stepped stack with abstract unreadable cover diagrams and visible paper texture, no real title, author, publisher logo, loose notebook, stationery, hand, person, or duplicate book pile",
+    "笔记本屏幕总成": "one complete replacement laptop display assembly as the only product hero, shown from a dynamic three-quarter rear angle with intact thin panel, bezel, hinge mounts, display cable, and metal backing clearly visible, no laptop base, broken glass, hand, repair bench, brand, serial label, readable marking, packaging, or duplicate screen",
+    "台式机显卡烧毁": "one desktop graphics card with localized heat damage as the only product hero, shown in a dynamic three-quarter view with complete circuit board, cooling shroud, fans, connector edge, and one restrained scorched power area clearly visible, no flames, smoke cloud, computer case, hand, repair shop, brand, readable label, or duplicate card",
+    "深夜牛肉面": "one steaming bowl of late-night beef noodles as the only food hero, with clear noodles, sliced beef, broth surface, and restrained green garnish visible from a low three-quarter angle, no diner, hand, restaurant sign, menu, brand, readable bowl mark, extra side dish, or duplicate bowl",
+    "大杯手冲咖啡": "one large freshly brewed pour-over coffee in a clear server and plain cup as one coherent drink set, shown from a dynamic three-quarter angle with warm translucent coffee and restrained steam, no barista, hand, cafe sign, brand, readable marking, pastry, duplicate cup, or retail packaging",
 }
 
 SERVICE_SCENE_DETAILS = {
@@ -245,6 +262,132 @@ SERVICE_SCENE_DETAILS = {
     "盒马鲜生（生鲜配送）": "one fresh-grocery delivery moment centered on a chilled delivery tote at a bright apartment doorway, seafood and produce limited to supporting context, no order receipt or readable branding",
     "叮咚买菜": "one doorstep grocery-delivery moment centered on a courier handing over a single vegetable-filled delivery bag, limited supporting produce, no order receipt or readable branding",
     "摄影工作室（婚纱照套系）": "one cinematic wedding portrait session in a professional studio, a bride and groom forming one focal pair under softbox light with a camera silhouette in the foreground, no booking voucher or readable text",
+    "冰箱急修上门": "one home appliance technician actively repairing an open refrigerator in an ordinary kitchen, centered on the technician, exposed rear service panel, and compact tool case as one coherent repair action, no sales showroom or standalone product advertisement",
+    "充电宝超时分钟费": "one close dynamic action of returning a shared power bank into a glowing rental kiosk, with the power bank and return slot forming one clear focal cluster slightly right of center, a bright abstract overdue timer ring without readable digits, no phone payment page or receipt",
+    "奶茶全员请客": "one office employee setting down the final drink carrier beside a neat group order of colorful milk-tea cups on a bright pantry table, the carrier and cups forming one abundant focal cluster slightly right of center, no crowd, no brand marks, and no readable cup labels",
+    "演唱会前排连锁": "one exhilarating front-row concert moment centered on a luminous stage, barricade, and one excited audience silhouette slightly right of center, brilliant moving beams and sparkling highlights, no performer likeness, no readable screens, ticket, hotel document, or collage",
+    "地面找平补差": "one renovation worker pouring self-leveling compound across an apartment floor while guiding it with a gauge rake and laser level, the glossy leveling wave and tool action slightly right of center, bright work lights, no quote sheet, invoice, or finished-room glamour shot",
+    "暑期游泳班": "one indoor swimming lesson with an instructor at the pool edge helping one child practice a kickboard drill in a single clear lane, the teaching action slightly right of center, radiant blue water reflections and bright summer energy, no crowd, signage, or readable lane text",
+    "资格证培训班": "one focused adult certification-training session in a compact bright classroom, centered slightly right on one learner working through practice material while an instructor points to abstract diagrams on a board, no readable questions, logos, certificates, or crowded lecture hall",
+    "外地面试差旅": "one business candidate arriving in another city for an interview, walking through a bright rail-station concourse with one rolling suitcase and a plain document folder, the determined traveler slightly right of center, no readable signs, tickets, company logos, or split travel montage",
+    "签证材料加急": "one urgent visa-document preparation service at a bright agency counter, centered slightly right on a staff member rapidly organizing one passport-sized booklet and a tidy application packet under a desk lamp, no readable forms, flags, official seals, or government emblems",
+    "摄影加机位": "one cinematic wedding shoot where two professional photographers capture the same bride-and-groom focal pair from complementary angles, cameras and softbox lights forming one coherent action slightly right of center, bright celebratory rim light, no venue signage or booking document",
+    "私人会所年费": "one exclusive private-club arrival in a luminous contemporary lounge, centered slightly right on a host opening the inner door for one smartly dressed guest, polished stone and warm metal highlights communicating premium access, no membership card, receipt, logo, or crowded party",
+    "变速箱深度保养": "one skilled mechanic performing deep transmission maintenance beneath a raised car, with the exposed gearbox housing, fluid service equipment, and mechanic forming one precise focal cluster slightly right of center, brilliant workshop task lights, no invoice, branding, or generic car showroom",
+    "工作餐升级套餐": "one office canteen worker sliding an upgraded lunch tray toward one employee, with one main dish and one clearly added side dish forming a bright appetizing focal cluster slightly right of center, no menu board, receipt, crowd, brand mark, or readable packaging",
+    "同城急送跑腿": "one same-city courier making an urgent parcel handoff at a bright building entrance, with the compact parcel and courier forming one dynamic focal cluster slightly right of center, a parked delivery scooter only as supporting context, no phone order screen, receipt, logo, address, or readable label",
+    "车险免赔差额": "one car-insurance inspection in a bright repair bay, centered slightly right on an adjuster and vehicle owner examining one visible damaged body panel that insurance does not fully cover, no estimate sheet, receipt, company logo, license plate, crash scene, or split panel",
+    "家庭临时请客": "one lively last-minute family banquet in a bright private dining room, centered slightly right on a host setting down one abundant shared dish for two seated relatives as one coherent focal group, no crowd, menu, restaurant logo, receipt, or readable table sign",
+    "滞纳金叠加": "one administrative service-counter moment where a clerk places the latest fee notice onto a small visibly growing stack while one customer reacts, forming one clear focal action slightly right of center under bright task lighting, all document marks abstract and unreadable, no amount, logo, official emblem, or collage",
+    "高级清洁费": "one premium venue-cleaning service after an event, centered slightly right on one professional cleaner polishing a luminous marble floor beside a compact cleaning machine, sparkling reflections and warm architectural highlights, no party crowd, invoice, hotel logo, or luxury product display",
+    "部门庆功请客": "one office team celebration centered slightly right on a manager setting down a bright celebration cake and a small shared meal for three colleagues, one coherent festive focal group with radiant commercial light, no crowd, banner text, company logo, receipt, or alcohol branding",
+    "合同律师审核": "one focused contract-review meeting in a bright modern law office, centered slightly right on one lawyer pointing to a single open agreement while one client listens, with abstract unreadable lines and a plain folder, no courtroom, official seal, law-firm logo, signature, or readable clause",
+    "便利店早餐十连": "one convenience-store breakfast rush where a cashier places the latest warm breakfast bundle beside several neatly grouped buns, drinks, and wrapped staples on a bright counter, forming one abundant focal cluster slightly right of center, no brand, receipt, retail pricing display, readable packaging, or crowd",
+    "超市一周补货": "one weekly grocery restock moment centered slightly right on a shopper loading a full but orderly cart with fresh produce, household staples, and one reusable bag in a bright supermarket aisle, no brand, price sign, receipt, crowded aisle, or readable packaging",
+    "慈善晚宴座位": "one elegant charity-gala arrival centered slightly right on a host guiding one guest to a single reserved place at a luminous formal dining table, with polished glassware and warm stage light as restrained context, no crowd, donation check, name card, banner, logo, or readable table sign",
+    "签证加急费": "one urgent visa-processing service centered slightly right on an agency specialist sealing one complete passport-sized booklet and application packet into a secure express pouch under bright task lighting, no readable form, flag, official seal, government emblem, receipt, or courier logo",
+    "周末搬家加价": "one weekend moving service centered slightly right on two movers carrying a sofa through a bright apartment doorway toward a waiting unbranded moving truck, one coherent high-effort action with limited boxes as context, no invoice, price label, company logo, address, crowd, or split panel",
+    "沙发定金": "one furniture-showroom purchase moment centered slightly right on a customer testing one modern sofa while a sales consultant presents fabric swatches nearby, the complete sofa remains the dominant object under bright commercial light, no payment receipt, retail pricing display, brand, readable swatch label, or crowded showroom",
+    "七座车异地还车": "one out-of-town rental return centered slightly right on a traveler handing a plain car key to an attendant beside a clean seven-seat vehicle at a bright return bay, luggage only as restrained context, no rental document, logo, license plate, fuel price, or readable sign",
+    "研究生复试辅导": "one graduate interview-coaching session in a bright classroom, centered slightly right on one mentor conducting a mock panel interview with one student seated opposite, abstract notes only, no university logo, certificate, readable questions, crowd, or lecture-hall scene",
+    "胃镜麻醉套餐": "one calm pre-procedure consultation in a bright endoscopy preparation room, centered slightly right on a clinician explaining sedation preparation to one seated adult beside clean monitoring equipment, non-graphic and reassuring, no procedure in progress, exposed body, medical advice text, hospital logo, form, or readable screen",
+    "厨房水电增项": "one kitchen-renovation worker installing newly added plumbing and electrical conduits inside an unfinished cabinet wall, the pipes, cable runs, and skilled action forming one clear focal cluster slightly right of center under bright work lights, no quote sheet, invoice, brand, unsafe exposed live wire, or finished luxury kitchen",
+    "二手设备卖出": "one second-hand equipment sale centered slightly right on a seller handing one clean used laptop to a buyer at a bright resale counter, the device and handoff forming one coherent incoming-money moment, no cash, payment screen, marketplace logo, serial number, receipt, or readable device interface",
+    "商标注册服务费": "one trademark-registration consultation in a bright intellectual-property service office, centered slightly right on one adviser comparing a single abstract symbol sketch with one client beside a plain application folder, no readable text, real trademark, official seal, government emblem, receipt, law-firm logo, or crowded office",
+    "考前冲刺课程": "one focused exam-cram lesson in a compact bright classroom, centered slightly right on one tutor guiding one student through a timed practice problem on a tablet beside abstract diagrams, no readable question, answer, score, school logo, certificate, crowd, or lecture-hall scene",
+    "计算机等级报名": "one computer-exam registration moment at a bright campus service desk, centered slightly right on one student presenting a plain identity-sized card to an attendant beside a desktop monitor with abstract color blocks, no readable interface, personal data, exam logo, school emblem, receipt, or queue",
+    "共享车押金找回失败": "one failed shared-bicycle deposit-recovery moment at a bright bicycle docking area, centered slightly right on one frustrated rider checking a phone with an abstract warning symbol beside a correctly parked unbranded bicycle, no readable interface, amount, app logo, receipt, cash, crowd, or damaged bicycle",
+    "节假日租车三天": "one cheerful three-day holiday car-rental pickup at a bright rental bay, centered slightly right on one traveler receiving a plain car key beside a clean compact crossover with a small suitcase as restrained context, no rental document, logo, license plate, fuel price, readable sign, crowd, or road-trip montage",
+    "押金原路退回": "one successful deposit-return moment at a bright service counter, centered slightly right on one customer receiving a plain bank card and a returned key token while a small green confirmation light glows on the payment terminal, no readable interface, amount, cash, receipt, bank logo, personal data, or crowd",
+    "停车超时补费": "one parking-overtime payment moment at a bright garage exit kiosk, centered slightly right on one driver tapping a plain bank card while the barrier waits beside the car, no readable timer, amount, receipt, payment logo, license plate, attendant, traffic queue, or dark threatening atmosphere",
+    "合同违约金": "one contract-penalty settlement meeting in a bright modern office, centered slightly right on two parties reviewing one open agreement while a mediator points to a single abstract highlighted clause, no readable text, signature, cash, official seal, company logo, courtroom, crowd, or aggressive confrontation",
+    "四条轮胎更换": "one complete four-tire replacement service in a brilliant modern workshop, centered slightly right on one mechanic fitting a new tire to a raised everyday car while the other three matching tires form a neat supporting stack, no invoice, tire brand, workshop logo, license plate, crowd, or damaged crash scene",
+    "夜路爆胎救援": "one urgent but controlled nighttime roadside tire rescue, centered slightly right on one safety-vest mechanic changing a visibly flat tire under brilliant portable work lights beside an everyday car, reflective cones as limited context, no injury, crash, rain, tow-company logo, license plate, readable sign, or horror atmosphere",
+    "空调漏水返修": "one air-conditioner leak repair in a bright lived-in apartment, centered slightly right on one technician opening the wall unit and clearing a blocked drain line above a small protected floor area, a few water droplets visible as evidence, no invoice, brand, mold, electrical hazard, flooded room, crowd, or finished-product advertisement",
+    "核磁共振加项": "one calm MRI add-on preparation in a bright modern imaging room, centered slightly right on one clinician reassuring one seated adult beside the recognizable MRI scanner, non-graphic and dignified, no procedure in progress, exposed body, diagnosis, medical advice text, readable screen, hospital logo, form, or crowd",
+    "长辈寿宴礼金": "one respectful elder birthday banquet in a luminous private dining room, centered slightly right on one younger relative presenting a single plain red envelope to the seated elder beside a restrained celebration table, no readable decoration, age number, cash, crowd, restaurant logo, receipt, or wedding imagery",
+    "婚纱礼服尾款": "one wedding-dress final fitting in a brilliant bridal atelier, centered slightly right on one bride viewing the complete gown in a full-length mirror while one tailor adjusts the hem, no payment counter, receipt, brand, readable signage, groom, crowd, or photo-shoot montage",
+    "停车起步补费": "one small parking-exit payment moment in a bright garage, centered slightly right on a driver tapping a plain card at the exit kiosk while the barrier begins to rise, no readable amount, timer, receipt, logo, license plate, queue, or dark atmosphere",
+    "设计图修改费": "one interior-design revision meeting in a bright studio, centered slightly right on one designer moving a wall line on an abstract floor plan while one homeowner reviews a material sample, no readable dimensions, invoice, company logo, official stamp, crowded desk, or finished-room montage",
+    "朋友突然还钱": "one warm repayment moment between two friends at a bright cafe table, centered slightly right on one friend returning a plain bank card and small borrowed key token while the other reacts with relief, no cash, readable phone screen, amount, receipt, brand, crowd, or gift-giving scene",
+    "同事离职礼物": "one sincere office farewell gift moment, centered slightly right on one colleague handing a single neatly wrapped practical gift to a departing coworker beside a clean desk, no crowd, party banner, readable card, brand, cash, alcohol, or birthday imagery",
+    "前挡玻璃修复": "one precise windshield chip repair in a brilliant automotive workshop, centered slightly right on one technician using a resin bridge tool over a small visible chip on an intact windshield, no shattered glass, crash, invoice, brand, license plate, crowd, or full replacement scene",
+    "房产过户测绘费": "one property-transfer surveying service in a bright empty apartment, centered slightly right on one surveyor measuring the room with a laser tripod while the owner observes, no deed, readable dimensions, government emblem, receipt, real-estate logo, crowd, or luxury staging",
+    "儿童乐园临时票": "one lively indoor children's playground visit, centered slightly right on one child entering a colorful climbing area while a guardian waits at the gate, bright safe equipment and joyful motion, no ticket document, readable wristband, brand, crowd, mascot, or unsafe play",
+    "证件照加洗": "one extra identity-photo printing service in a bright portrait studio, centered slightly right on one technician collecting several small freshly printed portrait sheets from a compact photo printer, all faces abstract and non-identifying, no readable personal data, official emblem, receipt, brand, or crowd",
+    "全屋深度保洁": "one whole-home deep-cleaning service in a bright lived-in apartment, centered slightly right on two professional cleaners working as one coherent team on glass and floor surfaces, sparkling controlled highlights, no crowd, invoice, brand, hotel lobby, unsafe chemical cloud, or before-and-after split panel",
+    "生日聚餐请客": "one cheerful birthday dinner treat in a bright private dining room, centered slightly right on the host presenting one small cake beside a shared meal for two friends, no age number, readable banner, crowd, restaurant logo, receipt, cash, or wedding decoration",
+    "营业执照代办": "one business-registration agency consultation in a bright administrative office, centered slightly right on one adviser organizing a plain application folder for a small-business owner, no readable license, official seal, government emblem, receipt, company logo, queue, or courtroom",
+    "轮胎补气救援": "one quick roadside tire-inflation rescue in clear daylight, centered slightly right on one mechanic connecting a portable compressor to a visibly low tire beside an everyday car, no flat-tire replacement, crash, invoice, company logo, license plate, traffic queue, or night scene",
+    "优惠券过期反买": "one expired-coupon checkout setback in a bright shop, centered slightly right on one shopper reconsidering a purchase while a cashier points to an abstract warning symbol on the payment terminal, no readable interface, amount, coupon code, brand, receipt, crowd, or duplicate product pile",
+    "公证材料翻译": "one notarized-document translation service in a bright language office, centered slightly right on one translator comparing two neatly aligned abstract document pages for a client, no readable language, personal data, official seal, government emblem, receipt, flag, or crowd",
+    "机场高速过路费": "one airport-expressway toll payment in brilliant daylight, centered slightly right on a traveler tapping a plain card at a modern toll gate from an everyday car, aircraft silhouette only as distant context, no readable amount, road sign, receipt, toll logo, license plate, or traffic queue",
+    "机场接送包车": "one private airport-transfer pickup outside a bright terminal, centered slightly right on a professional driver loading one suitcase into a clean unbranded people carrier for one traveler, no booking document, readable terminal sign, company logo, license plate, crowd, or travel montage",
+    "办公室咖啡六杯": "one office coffee run centered slightly right on an employee setting down a complete six-cup drink carrier on a bright pantry counter, all six cups clearly visible as one abundant cluster, no crowd, spilled drink, readable cup marks, cafe logo, receipt, or extra food",
+    "网约车取消费": "one ride-cancellation fee moment at a bright curbside pickup point, centered slightly right on one waiting passenger checking a phone with a simple abstract cancellation symbol as the requested car departs in the distance, no readable interface, amount, app logo, receipt, license plate, crowd, or angry confrontation",
+    "牙科种植定金": "one calm dental-implant planning consultation in a bright modern clinic, centered slightly right on one dentist explaining a simple tooth model to one seated adult, non-graphic and reassuring, no procedure in progress, exposed mouth close-up, diagnosis text, deposit receipt, hospital logo, or crowd",
+    "跨境认证服务费": "one cross-border certification service in a bright international documentation office, centered slightly right on one specialist placing a plain application packet into a secure document sleeve for a client, no readable language, flag, official seal, government emblem, receipt, courier logo, or crowd",
+    "电脑主板维修": "one expert laptop motherboard repair in a brilliant electronics workshop, centered slightly right on one technician using a precision soldering tool and magnifier over the exposed circuit board, no sparks, damaged battery, brand, serial number, invoice, readable screen, or cluttered device pile",
+    "定制柜增项": "one custom-cabinet addition being installed in a bright apartment, centered slightly right on one carpenter fitting an added cabinet module into a measured wall opening, material panels and level as limited context, no quote sheet, invoice, brand, unsafe tool use, crowd, or finished-room glamour shot",
+    "仓储保管费": "one orderly warehouse-storage service centered slightly right on one worker placing a sealed household box onto a clean numbered rack with a small trolley, no readable label, address, invoice, warehouse logo, crowd, dangerous stacking, or abandoned dirty warehouse",
+    "游戏账号申诉费": "one game-account appeal support session in a bright digital-service office, centered slightly right on one support specialist helping one customer review an abstract account-recovery screen, no readable interface, game artwork, username, password, payment receipt, platform logo, crowd, or gaming montage",
+    "商务形象顾问": "one professional image-consulting session in a bright wardrobe studio, centered slightly right on one consultant adjusting a client's jacket fit while comparing two restrained fabric swatches, no fashion brand, mirror text, crowd, runway, shopping receipt, or makeover split panel",
+    "古玩鉴定服务费": "one antique-appraisal service in a bright specialist studio, centered slightly right on one appraiser examining a single small ceramic object with a loupe while the owner observes, no readable certificate, auction logo, receipt, cash, crowded collection, museum label, or dramatic treasure glow",
+    "航班延误赔付": "one flight-delay compensation moment at a bright airline service counter, centered slightly right on one traveler receiving a plain bank card and travel pouch from an attendant, no readable flight number, amount, receipt, airline logo, passport data, crowd, or aircraft accident imagery",
+    "少儿体检套餐": "one gentle child health-check consultation in a bright pediatric clinic, centered slightly right on one clinician measuring a cooperative child's height while one parent watches, non-graphic and reassuring, no diagnosis, injection, exposed body, readable chart, hospital logo, crowd, or medical form",
+    "走错车道罚单": "one wrong-lane traffic enforcement moment in clear daylight, centered slightly right on one driver speaking calmly with a traffic officer beside a safe roadside lane divider, no readable ticket, cash, official emblem, police logo, license plate, crash, confrontation, or traffic jam",
+    "卫生间防水重做": "one bathroom waterproofing rework in a bright unfinished apartment, centered slightly right on one renovation worker applying a continuous waterproof membrane across the floor and lower walls, roller and sealed drain as limited context, no invoice, brand, standing water, exposed live wire, crowd, or finished luxury bathroom",
+    "退税突然到账": "one successful tax-refund arrival at a bright service desk, centered slightly right on one relieved customer receiving a plain bank card from a tax adviser beside a small green confirmation light, no readable amount, tax form, official seal, government emblem, cash, receipt, logo, or crowd",
+    "家电套装尾款": "one home-appliance suite final-payment moment in a brilliant showroom, centered slightly right on a customer confirming a coordinated refrigerator, washer, and compact oven set with one sales consultant, all three appliances readable as one coherent package, no payment screen, receipt, retail pricing display, brand, crowd, or duplicate appliance row",
+    "行李延误临时采购": "one delayed-luggage emergency shopping moment in a bright airport store, centered slightly right on one traveler placing a compact set of basic clothing and toiletries into a plain carry bag, an empty baggage carousel only as distant context, no readable airport sign, airline logo, receipt, brand, crowd, or lost suitcase montage",
+    "装修返工增项": "one renovation rework scene in a bright unfinished apartment, centered slightly right on two workers removing one incorrectly installed wall panel and preparing the corrected surface as one coherent action, no invoice, quote sheet, brand, unsafe demolition, crowd, finished-room glamour shot, or before-and-after split panel",
+    "小奖到账": "one modest prize payout moment at a bright neighborhood lottery counter, centered slightly right on one smiling clerk returning a plain bank card to a pleasantly surprised customer beside a small celebratory light, no readable ticket, number, amount, cash, lottery logo, crowd, or jackpot spectacle",
+    "保险理赔到账": "one successful insurance-claim payout at a bright service office, centered slightly right on one claim adviser returning a plain bank card to a relieved customer beside a closed damage-photo folder, no readable policy, amount, cash, receipt, insurer logo, accident scene, crowd, or official seal",
+    "周末自助早餐": "one inviting weekend breakfast buffet in a luminous hotel dining room, centered slightly right on one guest selecting a warm breakfast plate from a compact buffet with bread, eggs, fruit, and coffee as one coherent spread, no crowd, menu, hotel logo, retail display, receipt, or excessive food pile",
+    "双人奶茶外送": "one two-person milk-tea delivery handoff at a bright apartment doorway, centered slightly right on a courier presenting one secure two-cup carrier to a customer, both drinks fully visible with convincing condensation, no crowd, spilled drink, readable cup marks, delivery logo, receipt, or extra food",
+    "商务茶歇套餐": "one polished business tea-break service in a bright meeting lounge, centered slightly right on an attendant arranging one coherent tray of tea, coffee, and small pastries for two conference guests, no crowd, menu, hotel logo, readable cup marks, receipt, alcohol, or banquet scene",
+    "聚会香槟套餐": "one elegant small-party champagne service in a luminous private lounge, centered slightly right on a host pouring from one unbranded bottle into two sparkling flutes beside restrained appetizers, no crowd, readable label, alcohol brand, receipt, nightclub darkness, excessive bottles, or wedding toast",
+    "高峰打车加价": "one peak-hour ride pickup in a bright busy city, centered slightly right on one passenger entering an unbranded car while dense but orderly traffic glows behind, urgency communicated through movement and traffic rather than a payment screen, no readable app, amount, receipt, logo, license plate, crash, or crowd",
+    "跨城顺风车补差": "one cross-city rideshare pickup at a bright highway service area, centered slightly right on a traveler placing one suitcase into an everyday driver's open trunk before departure, no payment screen, amount, receipt, rideshare logo, license plate, crowd, or road-trip montage",
+    "软件专业版续费": "one professional-software renewal decision at a bright creative workstation, centered slightly right on one designer confirming an abstract feature upgrade with a support specialist beside the monitor, no readable interface, software logo, payment screen, receipt, account data, crowd, or futuristic hologram",
+    "周末绘画体验课": "one joyful weekend children's painting lesson in a bright art classroom, centered slightly right on one instructor guiding one child painting broad abstract color shapes on a small canvas, no crowd, readable artwork text, school logo, certificate, payment receipt, messy wall graffiti, or famous painting copy",
+    "牙齿矫正定金": "one calm child orthodontic planning consultation in a bright dental clinic, centered slightly right on one orthodontist showing a simple brace model to a child and parent, non-graphic and reassuring, no procedure in progress, exposed-mouth close-up, diagnosis text, deposit receipt, clinic logo, or crowd",
+    "私立学校校车费": "one private-school bus boarding moment in clear morning light, centered slightly right on one child stepping safely onto a clean unbranded school bus while a guardian and driver supervise, no crowd, readable school name, uniform logo, fee document, receipt, traffic danger, or luxury limousine",
+    "海外研学团费": "one overseas study-tour departure in a bright airport concourse, centered slightly right on one student with a backpack and small suitcase receiving a plain travel folder from a teacher while a parent says goodbye, no crowd, readable destination, flag, school logo, payment document, passport data, or travel montage",
+    "校园打印装订": "one campus printing-and-binding service in a bright copy shop, centered slightly right on one operator feeding a neat academic paper stack into a binding machine for one student, no readable paper text, thesis title, school logo, receipt, crowd, loose document mess, or office portrait printing",
+    "语言考试报名费": "one language-exam registration moment at a bright education service desk, centered slightly right on one student presenting a plain identity-sized card while an attendant confirms abstract fields on a monitor, no readable interface, exam logo, personal data, receipt, official seal, queue, or classroom test scene",
+    "异地考试住宿": "one out-of-town exam hotel arrival in a bright modest lobby, centered slightly right on one student checking in with a small suitcase and closed study folder, no readable hotel sign, room price, booking document, school logo, crowd, luxury resort, or travel montage",
+    "面试西装租赁": "one interview-suit rental fitting in a bright menswear studio, centered slightly right on one consultant adjusting a complete well-fitted suit for a job candidate beside one garment rack, no fashion brand, receipt, crowd, runway, wedding styling, or duplicate outfit display",
+    "职业证件照套餐": "one professional headshot session in a bright portrait studio, centered slightly right on one job candidate seated against a plain backdrop while one photographer adjusts a softbox and camera, no printed portrait sheet, readable resume, company logo, crowd, fashion shoot, or passport-office scene",
+    "行业峰会门票": "one industry-summit arrival in a brilliant conference venue, centered slightly right on one professional entering a focused keynote hall while an attendant scans a plain abstract pass, no readable event name, badge text, company logo, crowd, ticket close-up, receipt, or trade-show booth collage",
+    "海外会议参会费": "one overseas business-conference participation moment in a luminous international meeting hall, centered slightly right on one professional presenting to a small seated panel with an abstract chart behind, no readable language, flag, company logo, crowd, airline imagery, receipt, or conference montage",
+    "住院检查预缴": "one hospital examination prepayment consultation at a bright admissions desk, centered slightly right on one patient speaking with a clerk while a clinician holds a plain examination folder in the background, no readable form, amount, cash, receipt, hospital logo, diagnosis, exposed body, or crowd",
+    "宠物住院押金": "one pet-hospital admission consultation in a bright veterinary clinic, centered slightly right on one veterinarian reassuring an owner beside a calm small dog resting in a clean carrier, no procedure, injury, exposed body, deposit receipt, clinic logo, readable form, cage row, or crowd",
+    "宠物心脏手术定金": "one serious but reassuring veterinary heart-surgery planning consultation in a bright clinic, centered slightly right on one veterinarian explaining an abstract heart scan to an owner beside a calm small dog, no operation in progress, injury, exposed body, diagnosis text, deposit receipt, clinic logo, or crowd",
+    "返程机票改签": "one return-flight rebooking service at a bright airport counter, centered slightly right on one traveler handing a plain travel folder to an attendant who adjusts an abstract itinerary on the monitor, no readable flight number, destination, airline logo, ticket close-up, receipt, passport data, crowd, or cancelled-flight chaos",
+    "海外租车押金": "one overseas rental-car deposit moment in a bright vehicle pickup bay, centered slightly right on one traveler tapping a plain bank card while an attendant presents the key beside a clean compact car, no readable country sign, flag, amount, receipt, rental logo, license plate, crowd, or road-trip montage",
+    "全屋美缝追加": "one whole-home grout-finishing addition in a bright tiled apartment, centered slightly right on one skilled worker applying clean contrasting grout along floor and wall joints with a precision tool, no invoice, quote sheet, brand, crowd, finished luxury staging, dirty demolition, or before-and-after split panel",
+    "拍卖图录服务费": "one auction-catalog preparation service in a bright preview room, centered slightly right on one specialist photographing a single collectible object while a client reviews an abstract catalog layout, no readable lot number, auction logo, receipt, cash, crowded collection, bidding scene, or famous artwork",
+    "违停拖车保管费": "one vehicle-retrieval moment at a bright municipal storage yard, centered slightly right on one driver receiving a plain car key from an attendant beside the safely parked towed car, tow truck only as restrained background context, no readable ticket, amount, official emblem, cash, receipt, license plate, crowd, or confrontation",
+    "电瓶道路救援": "one controlled roadside battery rescue in clear daylight, centered slightly right on one mechanic connecting a portable jump starter under the open hood of an everyday car while the driver waits safely, no crash, flames, tow-company logo, invoice, license plate, traffic queue, night scene, or tire repair",
+    "话费重复扣款退回": "one duplicate mobile-charge refund at a bright telecom service counter, centered slightly right on one adviser returning a plain bank card to a relieved customer beside a phone with a simple abstract refund arrow, no readable interface, amount, phone number, telecom logo, receipt, cash, crowd, or device sale",
+    "租房押金退回": "one rental-deposit return after a successful apartment move-out inspection, centered slightly right on one landlord returning a plain bank card while the tenant hands back a single apartment key in a clean empty room, no readable contract, amount, cash, receipt, property logo, moving boxes, crowd, or dispute",
+    "年终奖补发": "one delayed year-end bonus correction in a bright payroll office, centered slightly right on one payroll specialist returning a plain bank card to a pleasantly surprised employee beside an abstract confirmation light, no cash, red envelope, readable payslip, amount, company logo, receipt, crowd, or award ceremony",
+    "伴郎礼服押金": "one best-man suit rental fitting in a bright formalwear studio, centered slightly right on one attendant adjusting a complete suit for the best man while a plain garment bag waits nearby, no payment receipt, amount, brand, crowd, wedding ceremony, runway, or duplicate outfit display",
+    "救护车费用": "one controlled ambulance transport arrival at a bright hospital entrance, centered slightly right on two paramedics safely guiding one seated patient from an unbranded ambulance toward care, non-graphic and calm, no injury, diagnosis, readable hospital sign, invoice, amount, emergency logo, crowd, or crash scene",
+    "住院押金": "one hospital admission moment at a bright inpatient desk, centered slightly right on one patient speaking with a clerk while a nurse prepares a clean room wristband, no readable form, amount, cash, receipt, hospital logo, diagnosis, exposed body, or crowd",
+    "机票改签费": "one flight-change service at a bright airport counter, centered slightly right on one traveler handing a plain travel folder to an attendant who updates an abstract itinerary on a monitor, no readable flight number, destination, airline logo, ticket close-up, receipt, amount, passport data, crowd, or cancelled-flight chaos",
+    "欧洲自驾押金": "one European self-drive rental deposit moment in a bright scenic vehicle pickup bay, centered slightly right on one traveler tapping a plain bank card while an attendant presents a car key beside a clean touring car, no flag, readable country sign, amount, receipt, rental logo, license plate, crowd, or road-trip montage",
+    "宴会酒水押金": "one banquet beverage deposit service in a luminous event preparation room, centered slightly right on one catering manager confirming a restrained set of unbranded bottles and glassware with the host, no payment receipt, amount, readable label, alcohol brand, crowd, active party, or excessive bottle wall",
+    "私立医院住院押金": "one private-hospital admission consultation in a luminous patient suite, centered slightly right on one admissions specialist guiding a patient and family member through room preparation, no readable form, amount, cash, receipt, hospital logo, diagnosis, exposed body, crowd, or luxury hotel imagery",
+    "行李超重补费": "one overweight-baggage resolution at a bright airport check-in counter, centered slightly right on one traveler moving an item from an open suitcase into a carry bag while an attendant watches the baggage scale, no readable weight, amount, airline logo, receipt, passport data, crowd, or luggage-loss scene",
+    "全家返程机票": "one family return-flight departure in a bright airport concourse, centered slightly right on two parents and one child moving together with a compact set of luggage toward the gate, no ticket close-up, readable destination, flight number, airline logo, passport data, crowd, or travel montage",
+    "婚车超时费用": "one wedding-car overtime handoff outside a bright reception venue, centered slightly right on a driver waiting beside a decorated but unbranded car while the newly married couple hurries from the entrance, no readable clock, amount, invoice, license plate, crowd, traffic jam, or wedding montage",
+    "超跑赛道事故押金": "one supercar track-damage inspection in a brilliant pit lane, centered slightly right on one track engineer and driver examining a single visibly scraped body panel on a parked sports car, no crash in progress, injury, flames, amount, deposit receipt, brand, license plate, crowd, or racing montage",
+    "油画保税仓费用": "one bonded-art-storage service in a bright climate-controlled warehouse, centered slightly right on two gloved specialists placing a single protected framed painting onto a secure rack, no visible famous artwork, readable inventory label, customs emblem, invoice, amount, crowd, or dirty warehouse",
+    "车辆保险赔付": "one successful vehicle-insurance payout at a bright repair office, centered slightly right on one claim adviser returning a plain bank card to a relieved driver beside one repaired everyday car, no readable policy, amount, cash, receipt, insurer logo, crash scene, license plate, or crowd",
+    "酒店取消退款": "one successful hotel-cancellation refund at a bright reception desk, centered slightly right on one receptionist returning a plain bank card to a relieved traveler beside a returned room-key sleeve, no readable booking, amount, cash, receipt, hotel logo, crowd, or argument",
+    "房屋退租押金到账": "one move-out deposit return after a successful home inspection, centered slightly right on one property manager returning a plain bank card while the former tenant hands back a single key in a clean empty apartment, no readable lease, amount, cash, receipt, property logo, moving boxes, crowd, or dispute",
 }
 
 DETAIL_KINDS = {
@@ -255,6 +398,7 @@ DETAIL_KINDS = {
     "演唱会票": "tangible-token",
     "手机碎屏换新": "physical-item",
     "宠物急诊账单": "tangible-token",
+    "宠物急诊押金": "tangible-token",
     "光明冰砖": "physical-item",
     "国际饭店蝴蝶酥": "physical-item",
     "摩登红人雪花膏": "physical-item",
@@ -266,6 +410,101 @@ DETAIL_KINDS = {
     "乔家栅条头糕": "physical-item",
     "蟹壳黄": "physical-item",
     "老凤祥金饰": "physical-item",
+    "儿童安全座椅": "physical-item",
+    "周末搬家加价": "experience-scene",
+    "商标注册服务费": "experience-scene",
+    "共享车押金找回失败": "experience-scene",
+    "押金原路退回": "experience-scene",
+    "停车超时补费": "experience-scene",
+    "长辈寿宴礼金": "experience-scene",
+    "婚纱礼服尾款": "experience-scene",
+    "停车起步补费": "experience-scene",
+    "设计图修改费": "experience-scene",
+    "朋友突然还钱": "experience-scene",
+    "同事离职礼物": "experience-scene",
+    "前挡玻璃修复": "experience-scene",
+    "房产过户测绘费": "experience-scene",
+    "儿童乐园临时票": "experience-scene",
+    "证件照加洗": "experience-scene",
+    "全屋深度保洁": "experience-scene",
+    "生日聚餐请客": "experience-scene",
+    "营业执照代办": "experience-scene",
+    "轮胎补气救援": "experience-scene",
+    "优惠券过期反买": "experience-scene",
+    "公证材料翻译": "experience-scene",
+    "机场高速过路费": "experience-scene",
+    "机场接送包车": "experience-scene",
+    "办公室咖啡六杯": "experience-scene",
+    "网约车取消费": "experience-scene",
+    "牙科种植定金": "experience-scene",
+    "跨境认证服务费": "experience-scene",
+    "电脑主板维修": "experience-scene",
+    "定制柜增项": "experience-scene",
+    "仓储保管费": "experience-scene",
+    "游戏账号申诉费": "experience-scene",
+    "商务形象顾问": "experience-scene",
+    "古玩鉴定服务费": "experience-scene",
+    "航班延误赔付": "experience-scene",
+    "少儿体检套餐": "experience-scene",
+    "走错车道罚单": "experience-scene",
+    "卫生间防水重做": "experience-scene",
+    "退税突然到账": "experience-scene",
+    "家电套装尾款": "experience-scene",
+    "幼儿园手工作业材料": "physical-item",
+    "专业教材整套": "physical-item",
+    "行李延误临时采购": "experience-scene",
+    "装修返工增项": "experience-scene",
+    "小奖到账": "experience-scene",
+    "保险理赔到账": "experience-scene",
+    "周末自助早餐": "experience-scene",
+    "双人奶茶外送": "experience-scene",
+    "商务茶歇套餐": "experience-scene",
+    "聚会香槟套餐": "experience-scene",
+    "高峰打车加价": "experience-scene",
+    "跨城顺风车补差": "experience-scene",
+    "软件专业版续费": "experience-scene",
+    "周末绘画体验课": "experience-scene",
+    "牙齿矫正定金": "experience-scene",
+    "私立学校校车费": "experience-scene",
+    "海外研学团费": "experience-scene",
+    "校园打印装订": "experience-scene",
+    "语言考试报名费": "experience-scene",
+    "异地考试住宿": "experience-scene",
+    "面试西装租赁": "experience-scene",
+    "职业证件照套餐": "experience-scene",
+    "行业峰会门票": "experience-scene",
+    "海外会议参会费": "experience-scene",
+    "住院检查预缴": "experience-scene",
+    "宠物住院押金": "experience-scene",
+    "宠物心脏手术定金": "experience-scene",
+    "返程机票改签": "experience-scene",
+    "海外租车押金": "experience-scene",
+    "全屋美缝追加": "experience-scene",
+    "拍卖图录服务费": "experience-scene",
+    "违停拖车保管费": "experience-scene",
+    "电瓶道路救援": "experience-scene",
+    "话费重复扣款退回": "experience-scene",
+    "租房押金退回": "experience-scene",
+    "年终奖补发": "experience-scene",
+    "笔记本屏幕总成": "physical-item",
+    "台式机显卡烧毁": "physical-item",
+    "伴郎礼服押金": "experience-scene",
+    "救护车费用": "experience-scene",
+    "住院押金": "experience-scene",
+    "机票改签费": "experience-scene",
+    "欧洲自驾押金": "experience-scene",
+    "宴会酒水押金": "experience-scene",
+    "私立医院住院押金": "experience-scene",
+    "行李超重补费": "experience-scene",
+    "全家返程机票": "experience-scene",
+    "婚车超时费用": "experience-scene",
+    "超跑赛道事故押金": "experience-scene",
+    "油画保税仓费用": "experience-scene",
+    "车辆保险赔付": "experience-scene",
+    "酒店取消退款": "experience-scene",
+    "房屋退租押金到账": "experience-scene",
+    "深夜牛肉面": "physical-item",
+    "大杯手冲咖啡": "physical-item",
 }
 
 DOCUMENT_HINTS = (
@@ -312,6 +551,10 @@ SERVICE_SCENE_HINTS = (
     "急诊",
     "检查",
     "维修",
+    "急修",
+    "修理",
+    "修复",
+    "上门",
     "换新",
     "保洁",
     "美容",
@@ -330,6 +573,138 @@ SERVICE_SCENE_HINTS = (
     "delivery",
     "fitness",
     "photography",
+)
+
+
+@dataclass(frozen=True)
+class CatalogMetadata:
+    """
+    Keep only the existing game fields that can improve visual classification.
+
+    A complete bootstrap row contains prices, weights, limits, and other gameplay data, but none
+    of those values should influence image composition. Category, scene id, and tags already
+    describe what the purchase represents, so retaining only these three fields keeps the image
+    skill connected to the content model without turning it into a second copy of game logic.
+    The empty value is also important: name-only callers must continue through the original name
+    rules and therefore receive the same prompt they received before catalog support was added.
+    """
+
+    category: str = ""
+    scene_id: str = ""
+    tags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ItemInput:
+    """Carry one validated input row from parsing to prompt generation."""
+
+    item_id: str
+    item_name: str
+    metadata: CatalogMetadata = CatalogMetadata()
+
+
+# These values come from the existing PostgreSQL content vocabulary. They do not decide the
+# exact picture by themselves. They only resolve the ambiguous case where a name such as
+# "商务形象顾问" contains no document word and no physical product noun. Explicit tickets,
+# bills, known products, and the old name rules still run first, which preserves old invocations.
+STRUCTURED_SERVICE_CATEGORIES = frozenset(
+    {
+        "交通",
+        "平台规则",
+        "灾难维修",
+        "社交压力",
+        "亲子教育",
+        "教育考试",
+        "职场晋升",
+        "健康",
+        "宠物",
+        "法律行政",
+        "旅行",
+        "大件现实",
+        "富人体验",
+        "高端误操作",
+        "高端隐形成本",
+    }
+)
+STRUCTURED_SERVICE_SCENE_IDS = frozenset(
+    {
+        "repair-week",
+        "car-owner-day",
+        "travel-chaos",
+        "home-renovation",
+        "pet-er",
+        "admin-window",
+        "auction-night",
+        "wedding-season",
+        "social-pressure",
+        "parenting-week",
+        "office-promotion",
+        "midlife-checkup",
+        "luxury-afterparty",
+        "campus-wallet",
+        "masked-party",
+        "hospital-corridor",
+        "lucky-counter",
+    }
+)
+STRUCTURED_SERVICE_TAGS = frozenset(
+    {
+        "repair",
+        "medical",
+        "education",
+        "admin",
+        "legal",
+        "travel",
+        "hotel",
+        "flight",
+        "renovation",
+        "rework",
+        "wedding",
+        "luxury",
+        "service-fee",
+        "auction",
+        "career",
+        "subscription",
+        "traffic",
+        "platform",
+        "income",
+        "refund",
+        "compensation",
+        "insurance",
+        "pet",
+        "social",
+        "family",
+    }
+)
+STRUCTURED_STRONG_SERVICE_TAGS = STRUCTURED_SERVICE_TAGS.difference({"social", "family"}).union(
+    {"batch", "resale"}
+)
+STRUCTURED_SERVICE_NAME_HINTS = (
+    "外送",
+    "包间",
+    "聚餐",
+    "请客",
+    "自助",
+    "私厨",
+    "庆功宴",
+    "晚宴",
+    "宴会",
+    "包桌",
+    "包场",
+    "月卡",
+    "茶歇",
+    "下午茶",
+    "拼盘",
+    "四人餐",
+    "六杯",
+    "演唱会",
+)
+STRUCTURED_PHYSICAL_CATEGORIES_BY_TAG = (
+    ("appliance", "appliance"),
+    ("food", "food"),
+    ("snack", "food"),
+    ("drink", "drink"),
+    ("digital", "electronics"),
 )
 
 LEGACY_BANNED_TERMS = (
@@ -448,10 +823,31 @@ IMAGE_QA_CHECKS = (
 )
 
 
+def default_image_gen_script() -> Path:
+    """Return the image generator installed under the current user's Codex home."""
+    configured_home = os.environ.get("CODEX_HOME", "").strip()
+    codex_home = Path(configured_home).expanduser() if configured_home else Path.home() / ".codex"
+    return codex_home / "skills" / ".system" / "imagegen" / "scripts" / "image_gen.py"
+
+
+def pillow_available() -> bool:
+    """Check image post-processing before a paid generation request starts."""
+    return importlib.util.find_spec("PIL") is not None
+
+
 def clean_item(value: str) -> str:
     value = value.strip().lstrip("\ufeff")
     value = re.sub(r"^\s*[\d一二三四五六七八九十]+[.、)]\s*", "", value)
     return re.sub(r"\s+", " ", value)
+
+
+def clean_item_id(value: object) -> str:
+    item_id = str(value).strip()
+    if not ITEM_ID_PATTERN.fullmatch(item_id):
+        raise ValueError(
+            f"invalid item id {item_id!r}; use 1-128 ASCII letters, digits, dots, underscores, or hyphens"
+        )
+    return item_id
 
 
 def validate_item_name(item: str) -> list[str]:
@@ -468,40 +864,106 @@ def has_hint(item: str, hints: tuple[str, ...]) -> bool:
     return any(hint.casefold() in normalized for hint in hints)
 
 
-def subject_for(item: str) -> str:
+def catalog_metadata_describes_service(metadata: CatalogMetadata) -> bool:
+    """
+    Return whether structured game content describes a real service or experience.
+
+    Scene ids and tags are checked in addition to the human-facing category because older content
+    rows sometimes use a broad category such as "中奖捡漏" while their tags carry the useful
+    `income` or `auction` meaning. All comparisons use the repository's current controlled
+    vocabulary. An unknown future value simply returns false and falls back to name classification.
+    """
+
+    normalized_tags = {tag.casefold() for tag in metadata.tags}
+    return (
+        metadata.category in STRUCTURED_SERVICE_CATEGORIES
+        or metadata.scene_id in STRUCTURED_SERVICE_SCENE_IDS
+        or not normalized_tags.isdisjoint(STRUCTURED_SERVICE_TAGS)
+    )
+
+
+def catalog_metadata_strongly_describes_service(metadata: CatalogMetadata) -> bool:
+    """Return whether a specific service tag should win over a broad physical tag."""
+
+    normalized_tags = {tag.casefold() for tag in metadata.tags}
+    return not normalized_tags.isdisjoint(STRUCTURED_STRONG_SERVICE_TAGS)
+
+
+def has_structured_catalog_metadata(metadata: CatalogMetadata) -> bool:
+    """Distinguish a game catalog row from the empty metadata used by legacy name input."""
+
+    return bool(metadata.category or metadata.scene_id or metadata.tags)
+
+
+def structured_physical_category(metadata: CatalogMetadata) -> str:
+    """Map high-confidence physical tags to an existing manifest category."""
+
+    normalized_tags = {tag.casefold() for tag in metadata.tags}
+    for tag, category in STRUCTURED_PHYSICAL_CATEGORIES_BY_TAG:
+        if tag in normalized_tags:
+            return category
+    return ""
+
+
+def subject_for(item: str, metadata: CatalogMetadata = CatalogMetadata()) -> str:
     if item in DETAILS:
         return DETAILS[item]
     if item in SERVICE_SCENE_DETAILS:
         return SERVICE_SCENE_DETAILS[item]
-    if has_hint(item, DOCUMENT_HINTS):
+    kind = subject_kind(item, metadata)
+    if kind == "tangible-token":
         if has_hint(item, ("票", "券", "ticket", "boarding pass")):
             return f"one real ticket or pass representing {item}, shown alone with a complete outline and no readable barcode or private information"
         return f"real receipt or payment slip representing {item}, placed on an ordinary table, no readable private information"
-    if has_hint(item, SERVICE_SCENE_HINTS):
+    if kind == "experience-scene":
         return f"one cinematic real-world service experience representing {item}, centered on one immediately recognizable place or action with limited supporting context"
     return f"named real-world product {item}, shown alone with its authentic market shape and defining material texture"
 
 
-def subject_kind(item: str) -> str:
+def subject_kind(item: str, metadata: CatalogMetadata = CatalogMetadata()) -> str:
     if item in DETAIL_KINDS:
         return DETAIL_KINDS[item]
     if has_hint(item, DOCUMENT_HINTS):
         return "tangible-token"
     if item in SERVICE_SCENE_DETAILS or has_hint(item, SERVICE_SCENE_HINTS):
         return "experience-scene"
+    if has_structured_catalog_metadata(metadata) and has_hint(item, STRUCTURED_SERVICE_NAME_HINTS):
+        return "experience-scene"
+    if catalog_metadata_strongly_describes_service(metadata):
+        return "experience-scene"
+    # A physical tag is more specific than broad context tags such as `social` or `home`. For
+    # example, bottled water may be bought in a social setting, but its image should still show
+    # the drink itself. The name-based service check above remains stronger, so a food package,
+    # repair, delivery, or subscription still becomes a service scene when its wording says so.
+    if structured_physical_category(metadata):
+        return "physical-item"
+    if catalog_metadata_describes_service(metadata):
+        return "experience-scene"
     return "physical-item"
 
 
-def subject_category_for(item: str) -> str:
+def subject_category_for(item: str, metadata: CatalogMetadata = CatalogMetadata()) -> str:
     normalized = item.casefold()
+    # DETAIL_KINDS is the most具体的人工判断。例如“押金原路退回”虽然名称中有
+    # “押金”，但我们已经明确要求它展示顾客收到退款的服务场景，而不是展示一张押金
+    # 单据。因此这里先读取 subject_kind，并让显式的 experience-scene 覆盖后面的名称
+    # 关键词。没有进入 DETAILS_KINDS 的旧卡仍会继续使用原来的票据关键词和数据库标签，
+    # 所以这项调整只修正人工指定过的例外，不会把所有含“押金”或“补费”的卡批量改类。
+    kind = subject_kind(item, metadata)
+    if kind == "experience-scene":
+        return "service-scene"
     if any(hint in normalized for hint in ("账单", "罚单", "发票", "收据", "押金", "缴费", "费用", "invoice", "receipt", "bill")):
         return "bill-or-receipt"
     if any(hint in normalized for hint in ("票", "券", "通行证", "登机牌", "ticket", "boarding pass")):
         return "ticket"
-    if subject_kind(item) == "tangible-token":
+    if kind == "tangible-token":
         return "service-token"
-    if subject_kind(item) == "experience-scene":
-        return "service-scene"
+    # Database tags are curated alongside each item and are therefore more reliable than a
+    # substring collision in the display name. This prevents "火锅四人餐" from becoming cookware,
+    # "大杯手冲咖啡" from becoming empty drinkware, and "笔记本屏幕总成" from becoming stationery.
+    metadata_category = structured_physical_category(metadata)
+    if metadata_category:
+        return metadata_category
     if any(
         hint in normalized
         for hint in (
@@ -561,8 +1023,8 @@ def subject_category_for(item: str) -> str:
     return "general-product"
 
 
-def visual_archetype_for(item: str) -> str:
-    category = subject_category_for(item)
+def visual_archetype_for(item: str, metadata: CatalogMetadata = CatalogMetadata()) -> str:
+    category = subject_category_for(item, metadata)
     if category in {"ticket", "bill-or-receipt", "service-token"}:
         return "flat-document"
     if category == "service-scene":
@@ -584,14 +1046,19 @@ def visual_archetype_for(item: str) -> str:
     return "hero-product"
 
 
-def style_profile_for(item: str, requested: str = "auto", style_seed: str = DEFAULT_STYLE_SEED) -> str:
+def style_profile_for(
+    item: str,
+    requested: str = "auto",
+    style_seed: str = DEFAULT_STYLE_SEED,
+    metadata: CatalogMetadata = CatalogMetadata(),
+) -> str:
     if requested != "auto":
         if requested != "iphone-realphoto" and requested not in STYLE_PROFILES:
             raise ValueError(f"unknown style profile: {requested}")
         return requested
     if not style_seed:
         raise ValueError("style_seed must not be empty")
-    pool = STYLE_POOLS_BY_CATEGORY.get(subject_category_for(item), STYLE_PROFILE_ORDER)
+    pool = STYLE_POOLS_BY_CATEGORY.get(subject_category_for(item, metadata), STYLE_PROFILE_ORDER)
     digest = hashlib.sha256(f"{style_seed}\0{item}".encode("utf-8")).digest()
     return pool[int.from_bytes(digest[:8], "big") % len(pool)]
 
@@ -603,8 +1070,8 @@ def palette_profile_for(item: str, style_seed: str = DEFAULT_STYLE_SEED) -> str:
     return PALETTE_PROFILE_ORDER[int.from_bytes(digest[:8], "big") % len(PALETTE_PROFILE_ORDER)]
 
 
-def composition_cue_for(item: str) -> str:
-    archetype = visual_archetype_for(item)
+def composition_cue_for(item: str, metadata: CatalogMetadata = CatalogMetadata()) -> str:
+    archetype = visual_archetype_for(item, metadata)
     if archetype == "flat-document":
         return "the single flat token occupies 70 to 82 percent of the frame width at a slight perspective angle while its full outline stays visible"
     if archetype == "experience-scene":
@@ -647,22 +1114,27 @@ def visual_grade_for(item: str, requested: str = "auto") -> str:
     return "bronze"
 
 
-def prompt_for(item: str, requested_style: str = "auto", style_seed: str = DEFAULT_STYLE_SEED) -> str:
-    style_profile = style_profile_for(item, requested_style, style_seed)
+def prompt_for(
+    item: str,
+    requested_style: str = "auto",
+    style_seed: str = DEFAULT_STYLE_SEED,
+    metadata: CatalogMetadata = CatalogMetadata(),
+) -> str:
+    style_profile = style_profile_for(item, requested_style, style_seed, metadata)
     if style_profile == "iphone-realphoto":
         return (
-            f"Close-up iPhone snapshot of a single {subject_for(item)}, "
+            f"Close-up iPhone snapshot of a single {subject_for(item, metadata)}, "
             f"landscape horizontal frame for a wide marketplace item tile art crop, centered product silhouette, "
             f"safe empty margin near all edges for deterministic UI overlay, one dominant item only, casual handheld composition, "
             f"no text, no border, no decorative frame, no dominant logo, no extra props competing with the subject, {FIXED_BASE}"
         )
-    category = subject_category_for(item)
-    archetype = visual_archetype_for(item)
+    category = subject_category_for(item, metadata)
+    archetype = visual_archetype_for(item, metadata)
     palette = palette_profile_for(item, style_seed)
     if archetype == "experience-scene":
         return (
-            f"Single-image game UI artwork for {subject_for(item)}, {CATEGORY_CUES[category]}. "
-            f"Wide horizontal 340:156 item-card art composition using the full wide canvas, one dominant visual focus only, {composition_cue_for(item)}, "
+            f"Single-image game UI artwork for {subject_for(item, metadata)}, {CATEGORY_CUES[category]}. "
+            f"Wide horizontal 340:156 item-card art composition using the full wide canvas, one dominant visual focus only, {composition_cue_for(item, metadata)}, "
             f"{VISUAL_ARCHETYPE_CUES[archetype]}. {MASTER_SCENE_ART_DIRECTION}. "
             f"Use {PALETTE_PROFILES[palette]} mainly in environmental color and light accents while preserving plausible local colors. "
             f"Apply this controlled surface treatment: {STYLE_PROFILES[style_profile]['prompt']}. "
@@ -671,8 +1143,8 @@ def prompt_for(item: str, requested_style: str = "auto", style_seed: str = DEFAU
             f"no card border, no game UI, no rarity badge, no signature, no watermark"
         )
     return (
-        f"Single-item game UI artwork of a single {subject_for(item)}, {CATEGORY_CUES[category]}. "
-        f"Wide horizontal 340:156 item-card art composition, one dominant item only, {composition_cue_for(item)}, "
+        f"Single-item game UI artwork of a single {subject_for(item, metadata)}, {CATEGORY_CUES[category]}. "
+        f"Wide horizontal 340:156 item-card art composition, one dominant item only, {composition_cue_for(item, metadata)}, "
         f"{VISUAL_ARCHETYPE_CUES[archetype]}. {MASTER_ITEM_ART_DIRECTION}. "
         f"Use {PALETTE_PROFILES[palette]} mainly in the background and light accents, preserving the product's authentic body color. "
         f"Apply this controlled surface treatment: {STYLE_PROFILES[style_profile]['prompt']}. "
@@ -720,13 +1192,15 @@ def record_for(
     requested_grade: str = "auto",
     requested_style: str = "auto",
     style_seed: str = DEFAULT_STYLE_SEED,
+    item_id: str = "",
+    metadata: CatalogMetadata = CatalogMetadata(),
 ) -> dict[str, object]:
     item_errors = validate_item_name(item)
     if item_errors:
         raise ValueError(f"{item}: {'; '.join(item_errors)}")
-    style_profile = style_profile_for(item, requested_style, style_seed)
-    prompt = prompt_for(item, style_profile, style_seed)
-    archetype = visual_archetype_for(item)
+    style_profile = style_profile_for(item, requested_style, style_seed, metadata)
+    prompt = prompt_for(item, style_profile, style_seed, metadata)
+    archetype = visual_archetype_for(item, metadata)
     errors = validate_prompt(prompt, style_profile, style_profile != "iphone-realphoto", archetype)
     if errors:
         raise ValueError(f"{item}: {'; '.join(errors)}")
@@ -736,8 +1210,8 @@ def record_for(
         "style_signature": style_signature_for(style_profile),
         "index": index,
         "item_name": item,
-        "subject_kind": subject_kind(item),
-        "subject": subject_for(item),
+        "subject_kind": subject_kind(item, metadata),
+        "subject": subject_for(item, metadata),
         "frontend_card_width": FRONTEND_CARD_WIDTH,
         "frontend_card_height": FRONTEND_CARD_HEIGHT,
         "asset_width": DEFAULT_ASSET_WIDTH,
@@ -750,10 +1224,12 @@ def record_for(
         "prompt": prompt,
         "qa_status": "prompt_validated",
     }
+    if item_id:
+        record["item_id"] = clean_item_id(item_id)
     if style_profile != "iphone-realphoto":
         record.update(
             {
-                "subject_category": subject_category_for(item),
+                "subject_category": subject_category_for(item, metadata),
                 "style_profile": style_profile,
                 "style_family": STYLE_PROFILES[style_profile]["family"],
                 "style_assignment": STYLE_ASSIGNMENT if requested_style == "auto" else "explicit",
@@ -784,7 +1260,11 @@ def load_manifest(path: Path) -> list[dict[str, object]]:
     return records
 
 
-def validate_record(record: dict[str, object], seen_indexes: set[int]) -> list[str]:
+def validate_record(
+    record: dict[str, object],
+    seen_indexes: set[int],
+    seen_item_ids: Optional[set[str]] = None,
+) -> list[str]:
     errors: list[str] = []
     schema_version = str(record.get("schema_version", ""))
     required_fields = LEGACY_REQUIRED_FIELDNAMES if schema_version == LEGACY_SCHEMA_VERSION else V2_REQUIRED_FIELDNAMES
@@ -826,6 +1306,17 @@ def validate_record(record: dict[str, object], seen_indexes: set[int]) -> list[s
     if index in seen_indexes:
         errors.append(f"duplicate index: {index}")
     seen_indexes.add(index)
+    item_id = str(record.get("item_id", "")).strip()
+    if item_id:
+        try:
+            item_id = clean_item_id(item_id)
+        except ValueError as exc:
+            errors.append(str(exc))
+        else:
+            if seen_item_ids is not None and item_id in seen_item_ids:
+                errors.append(f"duplicate item_id: {item_id}")
+            if seen_item_ids is not None:
+                seen_item_ids.add(item_id)
     if record["subject_kind"] not in {"physical-item", "tangible-token", "experience-scene"}:
         errors.append("subject_kind must be physical-item, tangible-token, or experience-scene")
     if "asset_width" in record and int(str(record["asset_width"])) != DEFAULT_ASSET_WIDTH:
@@ -854,9 +1345,10 @@ def validate_manifest(path: Path) -> str:
     if not records:
         raise ValueError("manifest has no records")
     seen_indexes: set[int] = set()
+    seen_item_ids: set[str] = set()
     failures: list[str] = []
     for row_number, record in enumerate(records, 1):
-        errors = validate_record(record, seen_indexes)
+        errors = validate_record(record, seen_indexes, seen_item_ids)
         if errors:
             item_name = record.get("item_name", "<unknown>")
             failures.append(f"row {row_number} ({item_name}): {'; '.join(errors)}")
@@ -875,6 +1367,9 @@ def write_manifest(records: list[dict[str, object]], path: Path) -> None:
 
 
 def image_output_name(record: dict[str, object], output_format: str) -> str:
+    item_id = str(record.get("item_id", "")).strip()
+    if item_id:
+        return f"{clean_item_id(item_id)}.{output_format}"
     return f"{int(str(record['index'])):04d}.{output_format}"
 
 
@@ -886,6 +1381,7 @@ def write_image2_jobs(records: list[dict[str, object]], path: Path, output_forma
                 "prompt": record["prompt"],
                 "out": image_output_name(record, output_format),
                 "fields": {
+                    "item_id": record.get("item_id"),
                     "item_name": record["item_name"],
                     "subject_kind": record["subject_kind"],
                     "style_signature": record["style_signature"],
@@ -953,9 +1449,11 @@ def redact_secret(text: str) -> str:
 
 
 def check_image2_channel(args: argparse.Namespace) -> str:
-    script = Path(args.image_gen_script or IMAGE_GEN_SCRIPT)
+    script = Path(args.image_gen_script).expanduser() if args.image_gen_script else default_image_gen_script()
     env = build_child_env(args.base_url)
     status = {
+        "python": sys.executable,
+        "pillow_available": pillow_available(),
         "image_gen_script": str(script),
         "image_gen_script_exists": script.exists(),
         "model": args.model,
@@ -1088,7 +1586,11 @@ def render_card_frame_dir(images_dir: Path, frame_out: Path, records: list[dict[
 
     frame_out.mkdir(parents=True, exist_ok=True)
     record_by_index = {}
+    record_by_item_id = {}
     for record in records:
+        item_id = str(record.get("item_id", "")).strip()
+        if item_id:
+            record_by_item_id[item_id] = record
         try:
             record_by_index[int(str(record["index"]))] = record
         except Exception:
@@ -1096,11 +1598,13 @@ def render_card_frame_dir(images_dir: Path, frame_out: Path, records: list[dict[
     rendered: list[str] = []
     suffix = "." + output_format.lower()
     for position, path in enumerate(sorted(images_dir.glob(f"*{suffix}")), 1):
+        record = record_by_item_id.get(path.stem)
         try:
             index = int(path.stem)
         except ValueError:
             index = position
-        record = record_by_index.get(index, {"index": index, "item_name": path.stem, "visual_grade": "bronze"})
+        if record is None:
+            record = record_by_index.get(index, {"index": index, "item_name": path.stem, "visual_grade": "bronze"})
         with Image.open(path) as image:
             framed = apply_card_frame(image, record, asset_size)
             output = frame_out / path.name
@@ -1132,6 +1636,11 @@ def render_review_sheets(
         stale.unlink()
 
     record_by_index = {int(str(record["index"])): record for record in records if str(record.get("index", "")).isdigit()}
+    record_by_item_id = {
+        str(record["item_id"]): record
+        for record in records
+        if str(record.get("item_id", "")).strip()
+    }
     columns = 4
     gap = 8
     margin = 12
@@ -1154,15 +1663,18 @@ def render_review_sheets(
             with Image.open(path) as source:
                 thumb = resize_cover(source, FRONTEND_CARD_WIDTH, FRONTEND_CARD_HEIGHT)
             sheet.paste(thumb, (x, y))
+            record = record_by_item_id.get(path.stem)
             try:
                 index = int(path.stem)
             except ValueError:
                 index = start + slot + 1
-            record = record_by_index.get(index, {})
+            if record is None:
+                record = record_by_index.get(index, {})
             style = str(record.get("style_profile", "unknown"))
             archetype = str(record.get("visual_archetype", "unknown"))
+            identity = str(record.get("item_id") or f"{index:04d}")
             draw.rectangle((x, y + FRONTEND_CARD_HEIGHT, x + cell_width, y + cell_height), fill=(20, 22, 28))
-            draw.text((x + 6, y + FRONTEND_CARD_HEIGHT + 5), f"{index:04d}  {style}  {archetype}", fill=(232, 235, 240))
+            draw.text((x + 6, y + FRONTEND_CARD_HEIGHT + 5), f"{identity}  {style}  {archetype}", fill=(232, 235, 240))
         output = review_out / f"contact-{page_index:04d}.png"
         sheet.save(output)
         written.append(str(output))
@@ -1170,9 +1682,19 @@ def render_review_sheets(
 
 
 def run_image2_batch(records: list[dict[str, object]], args: argparse.Namespace) -> None:
-    script = Path(args.image_gen_script or IMAGE_GEN_SCRIPT)
+    script = Path(args.image_gen_script).expanduser() if args.image_gen_script else default_image_gen_script()
     if not script.exists():
         raise FileNotFoundError(f"image_gen.py not found: {script}")
+    post_processing_enabled = not (
+        args.no_normalize_images
+        and args.no_render_card_frames
+        and args.no_render_review_sheets
+    )
+    if not args.dry_run and post_processing_enabled and not pillow_available():
+        raise RuntimeError(
+            "Pillow is required before image generation because normalization or review rendering is enabled. "
+            "Run this command with the Codex bundled Python or install Pillow in the selected Python environment."
+        )
     out_dir = Path(args.image2_out)
     images_dir = out_dir / "images"
     manifest_path = out_dir / "prompt_manifest.jsonl"
@@ -1231,16 +1753,118 @@ def run_image2_batch(records: list[dict[str, object]], args: argparse.Namespace)
         print(f"review: {Path(args.review_out) if args.review_out else out_dir / 'review'}")
 
 
-def read_items(args: argparse.Namespace) -> list[str]:
+def clean_optional_catalog_text(value: object, field_name: str, row_number: int) -> str:
+    """Validate an optional catalog text field while accepting a JSON null value."""
+
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"catalog row {row_number}: {field_name} must be a string or null")
+    return re.sub(r"\s+", " ", value.strip())
+
+
+def clean_catalog_tags(value: object, row_number: int) -> tuple[str, ...]:
+    """
+    Validate the JSON tags array and remove duplicate or blank values without reordering it.
+
+    Tags are controlled content labels, not free-form prompt text. Rejecting objects and numbers
+    here prevents a malformed bootstrap row from being silently converted into a misleading
+    string such as a Python dictionary representation later in the classifier.
+    """
+
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError(f"catalog row {row_number}: tags must be an array or null")
+    tags: list[str] = []
+    seen: set[str] = set()
+    for tag_number, tag in enumerate(value, 1):
+        if not isinstance(tag, str):
+            raise ValueError(f"catalog row {row_number}: tag {tag_number} must be a string")
+        cleaned = re.sub(r"\s+", " ", tag.strip())
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            tags.append(cleaned)
+    return tuple(tags)
+
+
+def parse_catalog_items(raw: str) -> list[ItemInput]:
+    """
+    Read either a complete bootstrap JSON object, a JSON array, or JSONL rows.
+
+    The game database already owns the stable item id, while display names can be edited later.
+    Keeping both values here lets generated files follow the database identity instead of a fragile
+    batch position such as 0001.png. Existing name-only input remains available through --file,
+    --items, or plain stdin, so older calls continue to produce their original numbered files.
+    """
+    text = raw.strip()
+    if not text:
+        raise ValueError("catalog input is empty")
+
+    try:
+        payload: object = json.loads(text)
+    except json.JSONDecodeError:
+        rows: list[object] = []
+        for line_number, line in enumerate(text.splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"catalog line {line_number}: invalid json: {exc}") from exc
+        payload = rows
+
+    if isinstance(payload, dict) and "items" in payload:
+        source = payload["items"]
+    elif isinstance(payload, dict):
+        source = [payload]
+    else:
+        source = payload
+    if not isinstance(source, list):
+        raise ValueError("catalog must be a JSON array, JSONL rows, or an object containing an items array")
+
+    items: list[ItemInput] = []
+    seen_item_ids: set[str] = set()
+    for row_number, value in enumerate(source, 1):
+        if not isinstance(value, dict):
+            raise ValueError(f"catalog row {row_number}: expected an object")
+        item_id = clean_item_id(value.get("id", ""))
+        item_name = clean_item(str(value.get("name", "")))
+        if not item_name:
+            raise ValueError(f"catalog row {row_number}: name must not be empty")
+        errors = validate_item_name(item_name)
+        if errors:
+            raise ValueError(f"catalog row {row_number} ({item_id}): {'; '.join(errors)}")
+        if item_id in seen_item_ids:
+            raise ValueError(f"catalog row {row_number}: duplicate item id {item_id}")
+        seen_item_ids.add(item_id)
+        metadata = CatalogMetadata(
+            category=clean_optional_catalog_text(value.get("category"), "category", row_number),
+            scene_id=clean_optional_catalog_text(value.get("sceneId"), "sceneId", row_number),
+            tags=clean_catalog_tags(value.get("tags"), row_number),
+        )
+        items.append(ItemInput(item_id=item_id, item_name=item_name, metadata=metadata))
+
+    return items
+
+
+def read_item_inputs(args: argparse.Namespace) -> list[ItemInput]:
+    inputs: list[ItemInput] = []
+    if args.catalog_file:
+        catalog_text = sys.stdin.read() if args.catalog_file == "-" else Path(args.catalog_file).read_text(encoding="utf-8-sig")
+        inputs.extend(parse_catalog_items(catalog_text))
+
     raw: list[str] = []
     if args.file:
         raw.extend(Path(args.file).read_text(encoding="utf-8").splitlines())
     if args.items:
         raw.extend(args.items)
-    if not raw and not sys.stdin.isatty():
+    if not inputs and not raw and not sys.stdin.isatty():
         raw.extend(sys.stdin.read().splitlines())
-    items = [clean_item(item) for item in raw]
-    return [item for item in items if item]
+    for item in (clean_item(value) for value in raw):
+        if item:
+            inputs.append(ItemInput(item_id="", item_name=item))
+    return inputs
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1273,6 +1897,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--concurrency", type=int, default=2)
     parser.add_argument("--max-attempts", type=int, default=3)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--catalog-file",
+        help="Bootstrap JSON, JSON array, or JSONL catalog with stable id and name fields; use - for stdin",
+    )
     parser.add_argument("--file", help="UTF-8 text file, one item per line")
     parser.add_argument("--items", nargs="*", help="Item names")
     parser.add_argument("--format", choices=("list", "jsonl", "csv"), default="list", help="Output format")
@@ -1326,20 +1954,29 @@ def main() -> None:
     if args.manifest:
         records = load_manifest(Path(args.manifest))
         seen_indexes: set[int] = set()
+        seen_item_ids: set[str] = set()
         failures = []
         for row_number, record in enumerate(records, 1):
-            errors = validate_record(record, seen_indexes)
+            errors = validate_record(record, seen_indexes, seen_item_ids)
             if errors:
                 failures.append(f"row {row_number}: {'; '.join(errors)}")
         if failures:
             raise ValueError("\n".join(failures))
     else:
-        items = read_items(args)
-        if not items:
+        item_inputs = read_item_inputs(args)
+        if not item_inputs:
             raise SystemExit("No items provided.")
         records = [
-            record_for(index, item, args.visual_grade, args.style_profile, args.style_seed)
-            for index, item in enumerate(items, 1)
+            record_for(
+                index,
+                item_input.item_name,
+                args.visual_grade,
+                args.style_profile,
+                args.style_seed,
+                item_input.item_id,
+                item_input.metadata,
+            )
+            for index, item_input in enumerate(item_inputs, 1)
         ]
     if args.image2_out:
         run_image2_batch(records, args)
@@ -1360,7 +1997,10 @@ def main() -> None:
             writer.writerows(records)
         return
     else:
-        output = "\n".join(f"{record['index']}. {record['prompt']}" for record in records)
+        output = "\n".join(
+            f"{record.get('item_id') or record['index']}. {record['prompt']}"
+            for record in records
+        )
     if args.out:
         Path(args.out).write_text(output + "\n", encoding="utf-8")
         return

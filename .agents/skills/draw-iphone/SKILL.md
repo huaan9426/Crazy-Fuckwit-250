@@ -62,8 +62,8 @@ When a message starts with /draw iphone, treat the remaining non-empty lines as 
 
 ## Workflow
 
-1. Read item names from the user, a UTF-8 file, or stdin.
-2. Preserve item order and reject corrupted input.
+1. Read item names from the user, a UTF-8 file, stdin, or a game bootstrap/catalog JSON file.
+2. Preserve item order and reject corrupted input. When catalog rows include `id`, keep that stable game id through the manifest and output filename. Catalog rows may also provide `category`, `sceneId`, and `tags`; use those existing game fields to resolve ambiguous service scenes, while explicit document words and physical product tags keep their more specific representation.
 3. Convert every input into one physical subject, explicit document token, or experiential service scene.
 4. Classify its semantic category and visual archetype.
 5. Select stable style and palette profiles unless the user forces a style.
@@ -86,6 +86,14 @@ Generate a stable mixed-style prompt batch:
 
     python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --items "包子" "咖啡" "上海英雄钢笔" "演唱会票"
 
+Generate from the game's bootstrap JSON and name outputs by `item.id`:
+
+    python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --catalog-file "bootstrap.json" --format jsonl
+
+Read a bootstrap object, item array, or JSONL catalog from stdin:
+
+    curl -s "http://localhost:3001/api/content/bootstrap" | python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --catalog-file - --format jsonl
+
 Force one style:
 
     python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --items "包子" "咖啡" --style-profile pop-art-print
@@ -97,6 +105,8 @@ Use legacy iPhone realism:
 Check the image2 channel:
 
     python ".agents/skills/draw-iphone/scripts/generate_iphone_photo_prompts.py" --check-image2-channel
+
+The script resolves `image_gen.py` from `$CODEX_HOME/skills/.system/imagegen/scripts/` or `~/.codex/skills/.system/imagegen/scripts/` on macOS, Linux, and Windows. Before a paid batch, require `image_gen_script_exists`, `pillow_available`, and `openai_api_key_available` to be true. If the normal `python3` has no Pillow, use the Codex bundled Python returned by the workspace dependency loader.
 
 Generate images:
 
@@ -132,6 +142,8 @@ Use UTF-8 files for large Chinese batches on Windows.
 
 Keep normalization enabled in production.
 
+Catalog input writes `<item-id>.png` so the file can be joined to the frontend with the existing game item id. A complete bootstrap catalog also uses `category`, `sceneId`, and `tags` during classification, but does not copy gameplay prices or weights into the art manifest. Legacy name-only input keeps the numbered `0001.png` behavior and the original name-only classifier.
+
 The default preview grade is neutral bronze. Do not infer gameplay rarity from a brand or product name; pass an explicit grade or use game-owned metadata when another preview grade is required.
 
 ## V2 Manifest
@@ -139,6 +151,7 @@ The default preview grade is neutral bronze. Do not infer gameplay rarity from a
 New mixed-style rows use `item-art-prompt-manifest/v2` with the `CF250_ITEM_ART_COHESIVE_V3` signature and include:
 
 - style_signature
+- item_id when input came from a structured game catalog
 - style_profile
 - style_family
 - style_assignment
