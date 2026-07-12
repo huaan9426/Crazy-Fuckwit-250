@@ -1,0 +1,7 @@
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# 服务器使用 UTC 时区，因此 19:17 对应北京时间次日 03:17。脚本输出交给 logger
+# 写入系统日志，这样日志会继续使用 Ubuntu 已有的轮转和空间管理规则，不需要再创建
+# 一个可能无限增长的专用日志文件。
+17 19 * * * root /srv/crazy-fuckwit-250/backup-postgres.sh 2>&1 | /usr/bin/logger -t crazy-fuckwit-250-backup
