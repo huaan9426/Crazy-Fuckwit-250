@@ -2,6 +2,8 @@ node_modules/
 dist/
 .env
 .env.local
+deploy/.env
+deploy/runtime/
 *.log
 coverage/
 .DS_Store

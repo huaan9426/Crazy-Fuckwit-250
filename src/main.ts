@@ -664,7 +664,7 @@ async function refreshLeaderboard(): Promise<boolean> {
   return state.kind === "online";
 }
 
-function remountGameWithBootstrap(nextBootstrap: GameBootstrap): void {
+async function remountGameWithBootstrap(nextBootstrap: GameBootstrap): Promise<void> {
   /*
    * CheckoutRushScene 在构造函数里接收 GameBootstrap，后续抽卡、事件、状态、音轨入口和
    * balanceTuning 都围绕这份内容包运行。页面如果先用本地/Go 内存兜底内容启动，后来又在
@@ -677,7 +677,7 @@ function remountGameWithBootstrap(nextBootstrap: GameBootstrap): void {
   audio.dispose();
   bootstrap = nextBootstrap;
   audio = new AudioDirector(bootstrap.audioTracks);
-  mountGame();
+  await mountGame();
 }
 
 async function refreshBootstrapAfterFallbackRecovery(previousApiState: ApiConnectionState): Promise<boolean> {
@@ -690,7 +690,7 @@ async function refreshBootstrapAfterFallbackRecovery(previousApiState: ApiConnec
   try {
     const nextBootstrap = await loadBootstrap();
     renderApiStatus();
-    remountGameWithBootstrap(nextBootstrap);
+    await remountGameWithBootstrap(nextBootstrap);
     return true;
   } catch {
     renderApiStatus();
@@ -843,27 +843,39 @@ async function handleRoundEnd(run: RunSubmission): Promise<void> {
   revealRoundEnd(run, result);
 }
 
-function mountGame(): void {
-  scene = new CheckoutRushScene(bootstrap, {
-    onStateChange: renderState,
-    onFeedEvent: pushFeed,
-    onTone: (kind) => audio.playPaymentTone(kind),
-    onRoundEnd: (run) => {
-      void handleRoundEnd(run);
-    }
-  });
+function mountGame(): Promise<void> {
+  gameReady = false;
+  startButton.disabled = true;
+  startButton.textContent = "加载场景";
 
-  game = new Phaser.Game({
-    type: Phaser.AUTO,
-    parent: "game-canvas",
-    width: GAME_CANVAS_WIDTH,
-    height: GAME_CANVAS_HEIGHT,
-    backgroundColor: "#050505",
-    scale: {
-      mode: Phaser.Scale.RESIZE,
-      autoCenter: Phaser.Scale.CENTER_BOTH
-    },
-    scene
+  return new Promise((resolve) => {
+    scene = new CheckoutRushScene(bootstrap, {
+      onReady: () => {
+        gameReady = true;
+        startButton.disabled = false;
+        startButton.textContent = "开局";
+        resolve();
+      },
+      onStateChange: renderState,
+      onFeedEvent: pushFeed,
+      onTone: (kind) => audio.playPaymentTone(kind),
+      onRoundEnd: (run) => {
+        void handleRoundEnd(run);
+      }
+    });
+
+    game = new Phaser.Game({
+      type: Phaser.AUTO,
+      parent: "game-canvas",
+      width: GAME_CANVAS_WIDTH,
+      height: GAME_CANVAS_HEIGHT,
+      backgroundColor: "#050505",
+      scale: {
+        mode: Phaser.Scale.RESIZE,
+        autoCenter: Phaser.Scale.CENTER_BOTH
+      },
+      scene
+    });
   });
 }
 
@@ -1087,8 +1099,7 @@ async function initializeApp(): Promise<void> {
 
   renderApiStatus();
   audio = new AudioDirector(bootstrap.audioTracks);
-  mountGame();
-  gameReady = true;
+  await mountGame();
   renderFeed();
   await refreshLeaderboard();
 }

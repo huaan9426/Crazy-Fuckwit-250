@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { DEFAULT_BALANCE_TUNING } from "./constants";
 import { formatDuration, formatMoney } from "./format";
-import { findItemArtwork, listItemArtworkAssets } from "./itemArtwork";
+import { findItemArtwork } from "./itemArtwork";
 import type {
   BalanceTuning,
   GameBootstrap,
@@ -55,6 +55,7 @@ export type GameFeedEvent = {
 };
 
 type SceneCallbacks = {
+  onReady: () => void;
   onStateChange: (state: GameRuntimeState) => void;
   onFeedEvent: (event: GameFeedEvent) => void;
   onTone: (kind: "spend" | "income" | "danger") => void;
@@ -301,6 +302,8 @@ export class CheckoutRushScene extends Phaser.Scene {
   private settlementStats = createEmptySettlementStats();
   private purchasedItemCounts = new Map<string, number>();
   private pendingItemCounts = new Map<string, number>();
+  private pendingArtworkKeys = new Set<string>();
+  private refreshHandAfterArtworkLoad = false;
   private callbacks: SceneCallbacks;
   private readonly handleNativeCanvasPointerDown = (event: PointerEvent): void => {
     if (event.pointerType === "mouse" && event.button !== 0) {
@@ -326,6 +329,24 @@ export class CheckoutRushScene extends Phaser.Scene {
     this.renderHand();
     this.renderHandTimer(performance.now());
   };
+  private readonly handleArtworkFileComplete = (key: string): void => {
+    this.pendingArtworkKeys.delete(key);
+  };
+  private readonly handleArtworkLoadError = (file: Phaser.Loader.File): void => {
+    this.pendingArtworkKeys.delete(file.key);
+  };
+  private readonly handleArtworkBatchComplete = (): void => {
+    const shouldRefreshCurrentHand = this.refreshHandAfterArtworkLoad;
+    this.refreshHandAfterArtworkLoad = false;
+
+    if (shouldRefreshCurrentHand && this.cards.length > 0) {
+      this.renderHand();
+    }
+
+    if (this.pendingArtworkKeys.size > 0 && !this.load.isLoading()) {
+      this.load.start();
+    }
+  };
 
   constructor(
     private readonly bootstrap: GameBootstrap,
@@ -335,21 +356,6 @@ export class CheckoutRushScene extends Phaser.Scene {
     this.callbacks = callbacks;
     this.tuning = resolveBalanceTuning(bootstrap);
     this.state = createInitialState(bootstrap, this.tuning);
-  }
-
-  preload(): void {
-    /*
-     * Phaser 的 preload 会在 create 之前完成资源请求。资源索引里只包含已经制作并提交的图片，
-     * 所以这里不会按内容包里的每个数据库 id 猜 URL。图片请求成功后会进入 Phaser 的纹理管理器；
-     * 请求失败时纹理不存在，后面的 createArtworkImage 会返回 null，卡牌自动退回原来的程序
-     * 绘制样式。加载失败只影响这一张商品图，不会阻止 Scene 创建，也不会改变抽卡和结算。
-     */
-    const contentItemIds = new Set(this.bootstrap.items.map((item) => item.id));
-    for (const asset of listItemArtworkAssets()) {
-      if (contentItemIds.has(asset.itemId) && !this.textures.exists(asset.textureKey)) {
-        this.load.image(asset.textureKey, asset.url);
-      }
-    }
   }
 
   create(): void {
@@ -366,11 +372,36 @@ export class CheckoutRushScene extends Phaser.Scene {
       })
       .setDepth(156);
     this.attachCanvasPointerListener();
+    this.attachArtworkLoaderListeners();
     this.installDebugSnapshot();
     this.redrawArena();
     this.attachScaleResizeListener();
 
     this.emitState();
+    this.callbacks.onReady();
+  }
+
+  private attachArtworkLoaderListeners(): void {
+    /*
+     * 商品目录已有 305 张原画，如果全部放进 preload，公网首次打开必须先下载约 53MB，
+     * Phaser 才会调用 create。页面 DOM 会比 Scene 更早出现，用户此时点击开局就可能访问
+     * 尚未创建的 Graphics。现在 Loader 只处理当前 9 张卡：文件完成时从 pending 集合移除，
+     * 本批完成后重画当前货架。Scene 关闭时必须解绑，因为 LoaderPlugin 会随 Scene 生命周期
+     * 复用事件对象，留下旧回调会让重建后的场景重复 renderHand。
+     */
+    this.load.on(Phaser.Loader.Events.FILE_COMPLETE, this.handleArtworkFileComplete);
+    this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, this.handleArtworkLoadError);
+    this.load.on(Phaser.Loader.Events.COMPLETE, this.handleArtworkBatchComplete);
+
+    const detach = (): void => {
+      this.load.off(Phaser.Loader.Events.FILE_COMPLETE, this.handleArtworkFileComplete);
+      this.load.off(Phaser.Loader.Events.FILE_LOAD_ERROR, this.handleArtworkLoadError);
+      this.load.off(Phaser.Loader.Events.COMPLETE, this.handleArtworkBatchComplete);
+      this.pendingArtworkKeys.clear();
+      this.refreshHandAfterArtworkLoad = false;
+    };
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, detach);
+    this.events.once(Phaser.Scenes.Events.DESTROY, detach);
   }
 
   private attachScaleResizeListener(): void {
@@ -1072,8 +1103,45 @@ export class CheckoutRushScene extends Phaser.Scene {
     }));
     this.nextHandRefreshAt = now + this.currentHandRefreshMs(now);
     this.renderHand();
+    this.loadArtworkForCurrentHand();
     this.flashCheckout();
     this.renderHandTimer(now);
+  }
+
+  private loadArtworkForCurrentHand(): void {
+    let queuedNewFile = false;
+    let waitingForArtwork = false;
+
+    for (const card of this.cards) {
+      const asset = findItemArtwork(card.item.id);
+      if (!asset || this.textures.exists(asset.textureKey)) {
+        continue;
+      }
+
+      waitingForArtwork = true;
+      if (this.pendingArtworkKeys.has(asset.textureKey)) {
+        continue;
+      }
+
+      this.pendingArtworkKeys.add(asset.textureKey);
+      this.load.image(asset.textureKey, asset.url);
+      queuedNewFile = true;
+    }
+
+    if (!waitingForArtwork) {
+      return;
+    }
+
+    /*
+     * Loader 正在处理上一手时，新一手可能已经刷新。refreshHandAfterArtworkLoad 只记录
+     * “当前货架仍在等图”，不把旧 CardSlot 闭包保存下来；批次完成后 renderHand 会读取
+     * this.cards 的最新值，所以慢网络不会把过期货架重新画回来。只有真正加入新文件且 Loader
+     * 当前空闲时才调用 start，避免 Phaser 对同一批队列重复启动。
+     */
+    this.refreshHandAfterArtworkLoad = true;
+    if (queuedNewFile && !this.load.isLoading()) {
+      this.load.start();
+    }
   }
 
   private pickHand(scene: Scene, now: number): Item[] {
